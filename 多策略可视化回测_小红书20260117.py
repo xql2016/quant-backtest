@@ -19,13 +19,26 @@ plt.rcParams['font.sans-serif'] = ['SimHei', 'Arial Unicode MS']
 plt.rcParams['axes.unicode_minus'] = False
 
 @st.cache_data(ttl=3600)
-def get_stock_data(code, start, end):
-    """获取股票数据并做基础清洗"""
+def get_stock_data(code, start, end, market='A股'):
+    """获取股票数据并做基础清洗
+    
+    Args:
+        code: 股票代码
+        start: 开始日期
+        end: 结束日期
+        market: 市场类型，'A股' 或 '港股'
+    """
     start_str = start.strftime("%Y%m%d")
     end_str = end.strftime("%Y%m%d")
     try:
-        # 尝试获取数据
-        df = ak.stock_zh_a_hist(symbol=code, period="daily", start_date=start_str, end_date=end_str, adjust="qfq")
+        # 根据市场类型选择不同的数据接口
+        if market == 'A股':
+            df = ak.stock_zh_a_hist(symbol=code, period="daily", start_date=start_str, end_date=end_str, adjust="qfq")
+        elif market == '港股':
+            df = ak.stock_hk_hist(symbol=code, period="daily", start_date=start_str, end_date=end_str, adjust="qfq")
+        else:
+            return None
+            
         if df.empty:
             return None
         
@@ -50,7 +63,28 @@ st.sidebar.title("🎛️ 策略控制面板")
 
 # --- A. 基础设置 ---
 st.sidebar.markdown("### 1. 基础回测设置")
-stock_code = st.sidebar.text_input("股票代码 (6位)", value="000001", help="请输入6位A股代码，如 600519")
+
+# 市场选择
+market_type = st.sidebar.selectbox(
+    "选择市场",
+    ["A股", "港股"],
+    help="选择要回测的市场类型"
+)
+
+# 根据市场类型显示不同的股票代码输入提示
+if market_type == "A股":
+    stock_code = st.sidebar.text_input(
+        "股票代码", 
+        value="000001", 
+        help="请输入6位A股代码，如 600519、000858"
+    )
+elif market_type == "港股":
+    stock_code = st.sidebar.text_input(
+        "股票代码", 
+        value="00700", 
+        help="请输入5位港股代码，如 00700(腾讯)、09988(阿里)、01810(小米)"
+    )
+
 # 默认回测最近3年
 default_start = datetime.date.today() - datetime.timedelta(days=365*3)
 default_end = datetime.date.today()
@@ -125,11 +159,12 @@ run_btn = st.sidebar.button("🚀 开始回测", type="primary")
 # 2. 核心逻辑处理
 # ===========================
 if run_btn:
-    st.title(f"📊 量化回测报告：{stock_code}")
+    market_flag = "🇨🇳" if market_type == "A股" else "🇭🇰"
+    st.title(f"📊 量化回测报告：{market_flag} {stock_code}")
     
     with st.spinner('正在拉取数据并进行量化计算...'):
         # 1. 获取数据
-        df = get_stock_data(stock_code, start_date, end_date)
+        df = get_stock_data(stock_code, start_date, end_date, market_type)
         
         if df is None or df.empty:
             st.error(f"❌ 无法获取代码 {stock_code} 的数据，请检查代码是否正确，或该股在区间内已退市。")
@@ -377,4 +412,4 @@ if run_btn:
 
 else:
     # 欢迎页
-    st.info("👋 欢迎来到量化实验室！请在左侧侧边栏输入股票代码并选择策略，点击“开始回测”按钮。")
+    st.info("👋 欢迎来到量化实验室！\n\n支持 🇨🇳 A股 和 🇭🇰 港股回测。请在左侧侧边栏选择市场、输入股票代码并选择策略，点击【开始回测】按钮。")
