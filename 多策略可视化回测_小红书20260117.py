@@ -71,7 +71,7 @@ else:
 
 # --- B. 策略选择与参数 ---
 st.sidebar.markdown("### 2. 策略与参数")
-strategy_list = ["MACD趋势策略", "双均线策略(SMA)", "RSI超买超卖", "布林带突破"]
+strategy_list = ["MACD趋势策略", "双均线策略(SMA)", "RSI超买超卖", "布林带突破", "波段策略"]
 selected_strategy = st.sidebar.selectbox("选择交易策略", strategy_list)
 
 # 动态参数容器
@@ -111,6 +111,13 @@ elif selected_strategy == "布林带突破":
     params['period'] = st.sidebar.slider("均线周期", 5, 60, 20)
     params['std'] = st.sidebar.slider("标准差倍数", 1.0, 3.0, 2.0, step=0.1)
 
+elif selected_strategy == "波段策略":
+    st.sidebar.caption("逻辑：开始买入80%，跌5%加仓20%，涨20%且跌破MA5止盈")
+    params['first_position'] = st.sidebar.slider("首次建仓比例 (%)", 50, 90, 80)
+    params['add_drop'] = st.sidebar.slider("加仓跌幅 (%)", 3, 10, 5)
+    params['profit_target'] = st.sidebar.slider("止盈涨幅 (%)", 10, 50, 20)
+    params['ma_period'] = st.sidebar.slider("均线周期 (MA)", 3, 10, 5)
+
 # --- C. 启动按钮 ---
 run_btn = st.sidebar.button("🚀 开始回测", type="primary")
 
@@ -130,6 +137,9 @@ if run_btn:
 
         # 2. 计算指标 & 生成信号 (Signal: 1买, -1卖, 0持)
         df['signal'] = 0
+        
+        # 记录开始价格（用于波段策略）
+        start_price = df['close'].iloc[0]
         
         # --- 策略逻辑分支 ---
         if selected_strategy == "MACD趋势策略":
@@ -178,31 +188,109 @@ if run_btn:
             df.loc[df['close'] < df['lower'], 'signal'] = 1 
             df.loc[df['close'] > df['upper'], 'signal'] = -1
 
+        elif selected_strategy == "波段策略":
+            # 计算均线用于止盈判断
+            df['ma'] = df['close'].rolling(window=params['ma_period']).mean()
+            # 波段策略的信号将在交易循环中特殊处理
+            # 这里标记第一天为初始买入信号
+            df.loc[df.index[0], 'signal'] = 1
+
         # 3. 模拟交易循环
         cash = initial_cash
         position = 0
         equity_curve = []
         trade_log = []
         
+        # 波段策略专用变量
+        if selected_strategy == "波段策略":
+            first_position_ratio = params['first_position'] / 100
+            add_position_ratio = 1 - first_position_ratio
+            has_added = False  # 是否已加仓
+            current_start_price = start_price  # 当前波段的初始价格
+            waiting_for_reentry = False  # 是否在等待重新入场（止盈后）
+            is_first_band = True  # 是否是第一个波段
+        
         for date, row in df.iterrows():
             price = row['close']
             sig = row['signal']
             
-            # 买入
-            if sig == 1 and position == 0:
-                cost = price * (1 + commission_rate)
-                hands = int(cash / (cost * 100))
-                if hands > 0:
-                    position = hands * 100
-                    cash -= position * cost
-                    trade_log.append({'日期': date, '操作': '买入', '价格': price, '资产': cash + position*price})
+            # === 波段策略的特殊逻辑 ===
+            if selected_strategy == "波段策略":
+                # 第一个波段：第一天买入首批仓位
+                if position == 0 and not waiting_for_reentry and is_first_band:
+                    cost = price * (1 + commission_rate)
+                    buy_cash = cash * first_position_ratio
+                    hands = int(buy_cash / (cost * 100))
+                    if hands > 0:
+                        position = hands * 100
+                        cash -= position * cost
+                        current_start_price = price
+                        is_first_band = False
+                        trade_log.append({'日期': date, '操作': f'买入{int(first_position_ratio*100)}%', '价格': price, '资产': cash + position*price})
+                
+                # 等待重新入场：价格回到初始价格时，重新买入80%
+                elif position == 0 and waiting_for_reentry:
+                    if price <= current_start_price:
+                        cost = price * (1 + commission_rate)
+                        buy_cash = cash * first_position_ratio
+                        hands = int(buy_cash / (cost * 100))
+                        if hands > 0:
+                            position = hands * 100
+                            cash -= position * cost
+                            current_start_price = price  # 更新新的波段初始价格
+                            has_added = False  # 重置加仓标志
+                            waiting_for_reentry = False  # 重新开始持仓
+                            trade_log.append({'日期': date, '操作': f'重新买入{int(first_position_ratio*100)}%', '价格': price, '资产': cash + position*price})
+                
+                # 持仓中：判断加仓或止盈
+                elif position > 0:
+                    # 加仓条件：价格比当前波段初始价格跌超过设定比例，且尚未加仓
+                    drop_threshold = current_start_price * (1 - params['add_drop'] / 100)
+                    if price <= drop_threshold and not has_added:
+                        cost = price * (1 + commission_rate)
+                        hands = int(cash / (cost * 100))
+                        if hands > 0:
+                            add_shares = hands * 100
+                            cash -= add_shares * cost
+                            position += add_shares
+                            has_added = True
+                            trade_log.append({'日期': date, '操作': f'加仓{int(add_position_ratio*100)}%', '价格': price, '资产': cash + position*price})
+                    
+                    # 止盈条件：价格超过当前波段初始价格的目标涨幅 且 当日跌破MA
+                    profit_threshold = current_start_price * (1 + params['profit_target'] / 100)
+                    ma_value = row['ma']
+                    prev_close = df['close'].shift(1).loc[date]
+                    
+                    # 判断是否跌破MA5：前一日在MA上方，今日收盘价在MA下方
+                    if not pd.isna(ma_value) and not pd.isna(prev_close):
+                        prev_ma = df['ma'].shift(1).loc[date]
+                        if not pd.isna(prev_ma):
+                            cross_below_ma = (prev_close >= prev_ma) and (price < ma_value)
+                            if price >= profit_threshold and cross_below_ma:
+                                revenue = price * position * (1 - commission_rate)
+                                cash += revenue
+                                position = 0
+                                has_added = False
+                                waiting_for_reentry = True  # 标记为等待重新入场
+                                trade_log.append({'日期': date, '操作': '止盈', '价格': price, '资产': cash})
             
-            # 卖出
-            elif sig == -1 and position > 0:
-                revenue = price * position * (1 - commission_rate)
-                cash += revenue
-                position = 0
-                trade_log.append({'日期': date, '操作': '卖出', '价格': price, '资产': cash})
+            # === 其他策略的标准逻辑 ===
+            else:
+                # 买入
+                if sig == 1 and position == 0:
+                    cost = price * (1 + commission_rate)
+                    hands = int(cash / (cost * 100))
+                    if hands > 0:
+                        position = hands * 100
+                        cash -= position * cost
+                        trade_log.append({'日期': date, '操作': '买入', '价格': price, '资产': cash + position*price})
+                
+                # 卖出
+                elif sig == -1 and position > 0:
+                    revenue = price * position * (1 - commission_rate)
+                    cash += revenue
+                    position = 0
+                    trade_log.append({'日期': date, '操作': '卖出', '价格': price, '资产': cash})
             
             # 记录每日净值
             equity_curve.append(cash + position * price)
@@ -252,6 +340,12 @@ if run_btn:
         elif selected_strategy == "双均线策略(SMA)":
             ax1.plot(df.index, df['sma_short'], color='#ff7f0e', alpha=0.6, label='短期均线')
             ax1.plot(df.index, df['sma_long'], color='#1f77b4', alpha=0.6, label='长期均线')
+        # 如果是波段策略，画均线和开始价格线
+        elif selected_strategy == "波段策略":
+            ax1.plot(df.index, df['ma'], color='#ff7f0e', alpha=0.6, label=f'MA{params["ma_period"]}')
+            ax1.axhline(y=start_price, color='blue', linestyle='--', alpha=0.3, label='开始价格')
+            ax1.axhline(y=start_price * (1 - params['add_drop']/100), color='orange', linestyle=':', alpha=0.3, label='加仓线')
+            ax1.axhline(y=start_price * (1 + params['profit_target']/100), color='green', linestyle=':', alpha=0.3, label='止盈线')
 
         # 标记买卖点
         buys = df[df['signal'] == 1]
