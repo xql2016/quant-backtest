@@ -105,7 +105,7 @@ else:
 
 # --- B. 策略选择与参数 ---
 st.sidebar.markdown("### 2. 策略与参数")
-strategy_list = ["MACD趋势策略", "双均线策略(SMA)", "RSI超买超卖", "布林带突破", "波段策略"]
+strategy_list = ["MACD趋势策略", "双均线策略(SMA)", "RSI超买超卖", "布林带突破", "波段策略", "多重底入场策略"]
 selected_strategy = st.sidebar.selectbox("选择交易策略", strategy_list)
 
 # 动态参数容器
@@ -151,6 +151,20 @@ elif selected_strategy == "波段策略":
     params['add_drop'] = st.sidebar.slider("加仓跌幅 (%)", 3, 10, 5)
     params['profit_target'] = st.sidebar.slider("止盈涨幅 (%)", 10, 50, 20)
     params['ma_period'] = st.sidebar.slider("均线周期 (MA)", 3, 10, 5)
+
+elif selected_strategy == "多重底入场策略":
+    st.sidebar.caption("逻辑：价格创新低但MACD柱不创新低（底背离），形成多重底入场")
+    params['fast'] = st.sidebar.slider("MACD快线周期", 5, 30, 12)
+    params['slow'] = st.sidebar.slider("MACD慢线周期", 15, 60, 26)
+    params['signal'] = st.sidebar.slider("MACD信号周期", 5, 20, 9)
+    params['lookback'] = st.sidebar.slider("价格新低回溯期", 20, 60, 30, help="判断价格新低的天数")
+    params['divergence_count'] = st.sidebar.slider("底背离次数", 2, 4, 2, help="形成几重底（2=双重底，3=三重底）")
+    params['zero_threshold'] = st.sidebar.slider("0轴阈值", 0.0, 1.0, 0.3, step=0.1, help="MACD回到0轴附近的容忍度")
+    params['profit_pct'] = st.sidebar.slider("止盈百分比 (%)", 5, 30, 15)
+    # 异常检查
+    if params['fast'] >= params['slow']:
+        st.sidebar.error("❌ 错误：快线周期必须小于慢线周期！")
+        st.stop()
 
 # --- C. 启动按钮 ---
 run_btn = st.sidebar.button("🚀 开始回测", type="primary")
@@ -229,6 +243,87 @@ if run_btn:
             # 波段策略的信号将在交易循环中特殊处理
             # 这里标记第一天为初始买入信号
             df.loc[df.index[0], 'signal'] = 1
+
+        elif selected_strategy == "多重底入场策略":
+            # 计算 MACD
+            ema_fast = df['close'].ewm(span=params['fast'], adjust=False).mean()
+            ema_slow = df['close'].ewm(span=params['slow'], adjust=False).mean()
+            df['dif'] = ema_fast - ema_slow
+            df['dea'] = df['dif'].ewm(span=params['signal'], adjust=False).mean()
+            df['macd_hist'] = (df['dif'] - df['dea']) * 2
+            
+            # 识别MACD柱的局部低点（前后都比当前值大）
+            df['is_macd_trough'] = False
+            for i in range(2, len(df) - 2):
+                if (df['macd_hist'].iloc[i] < df['macd_hist'].iloc[i-1] and 
+                    df['macd_hist'].iloc[i] < df['macd_hist'].iloc[i-2] and
+                    df['macd_hist'].iloc[i] < df['macd_hist'].iloc[i+1] and
+                    df['macd_hist'].iloc[i] < df['macd_hist'].iloc[i+2] and
+                    df['macd_hist'].iloc[i] < 0):  # 只考虑负值的低点
+                    df.loc[df.index[i], 'is_macd_trough'] = True
+            
+            # 查找多重底信号
+            lookback = params['lookback']
+            divergence_count = params['divergence_count']
+            zero_threshold = params['zero_threshold']
+            
+            for i in range(lookback, len(df)):
+                if df['is_macd_trough'].iloc[i]:
+                    # 当前是MACD低点，检查是否形成多重底
+                    current_price = df['close'].iloc[i]
+                    current_macd = df['macd_hist'].iloc[i]
+                    
+                    # 查找前面的MACD低点
+                    previous_troughs = []
+                    for j in range(i - 5, max(i - lookback, 0), -1):
+                        if df['is_macd_trough'].iloc[j]:
+                            previous_troughs.append(j)
+                            if len(previous_troughs) >= divergence_count - 1:
+                                break
+                    
+                    # 如果找到足够的前置低点
+                    if len(previous_troughs) >= divergence_count - 1:
+                        valid_divergence = True
+                        
+                        # 检查每对相邻底是否符合条件
+                        all_indices = previous_troughs[::-1] + [i]  # 按时间顺序排列
+                        
+                        for k in range(len(all_indices) - 1):
+                            idx1 = all_indices[k]
+                            idx2 = all_indices[k + 1]
+                            
+                            price1 = df['close'].iloc[idx1]
+                            price2 = df['close'].iloc[idx2]
+                            macd1 = df['macd_hist'].iloc[idx1]
+                            macd2 = df['macd_hist'].iloc[idx2]
+                            
+                            # 条件1：价格创新低
+                            if price2 >= price1:
+                                valid_divergence = False
+                                break
+                            
+                            # 条件2：MACD柱不创新低（底背离）
+                            if macd2 <= macd1:
+                                valid_divergence = False
+                                break
+                            
+                            # 条件3：两底之间MACD要回到接近0轴
+                            between_max = df['macd_hist'].iloc[idx1:idx2+1].max()
+                            if between_max < -zero_threshold:  # 没有回到0轴附近
+                                valid_divergence = False
+                                break
+                        
+                        # 如果所有条件都满足，产生买入信号
+                        if valid_divergence:
+                            df.loc[df.index[i], 'signal'] = 1
+                            
+                            # 止盈：价格上涨达到目标百分比
+                            entry_price = df['close'].iloc[i]
+                            target_price = entry_price * (1 + params['profit_pct'] / 100)
+                            for j in range(i + 1, len(df)):
+                                if df['close'].iloc[j] >= target_price:
+                                    df.loc[df.index[j], 'signal'] = -1
+                                    break
 
         # 3. 模拟交易循环
         cash = initial_cash
@@ -361,9 +456,16 @@ if run_btn:
         # --- 图表区 ---
         st.subheader("📈 资金曲线与技术指标")
         
-        fig = plt.figure(figsize=(12, 10))
-        # 主图：股价 + 买卖点
-        ax1 = fig.add_subplot(211)
+        # 根据策略类型决定子图数量
+        if selected_strategy == "多重底入场策略":
+            fig = plt.figure(figsize=(12, 14))
+            # 主图：股价 + 买卖点
+            ax1 = fig.add_subplot(311)
+        else:
+            fig = plt.figure(figsize=(12, 10))
+            # 主图：股价 + 买卖点
+            ax1 = fig.add_subplot(211)
+        
         ax1.plot(df.index, df['close'], label='收盘价', color='#333', alpha=0.6)
         
         # 如果有布林带，画轨道
@@ -381,6 +483,13 @@ if run_btn:
             ax1.axhline(y=start_price, color='blue', linestyle='--', alpha=0.3, label='开始价格')
             ax1.axhline(y=start_price * (1 - params['add_drop']/100), color='orange', linestyle=':', alpha=0.3, label='加仓线')
             ax1.axhline(y=start_price * (1 + params['profit_target']/100), color='green', linestyle=':', alpha=0.3, label='止盈线')
+        # 如果是多重底策略，显示MACD低点
+        elif selected_strategy == "多重底入场策略":
+            # 标记MACD低点
+            macd_troughs = df[df['is_macd_trough'] == True]
+            if len(macd_troughs) > 0:
+                ax1.scatter(macd_troughs.index, macd_troughs['close'], 
+                           marker='o', c='purple', s=50, alpha=0.5, label='MACD低点', zorder=4)
 
         # 标记买卖点
         buys = df[df['signal'] == 1]
@@ -391,14 +500,44 @@ if run_btn:
         ax1.set_title(f"{stock_code} 价格走势与交易信号")
         ax1.grid(True, alpha=0.2)
 
-        # 副图：资金曲线 vs 基准
-        ax2 = fig.add_subplot(212, sharex=ax1)
-        ax2.plot(df.index, df['equity'], label='策略净值', color='#d62728', linewidth=2)
-        ax2.plot(df.index, df['benchmark'], label='基准净值 (买入持有)', color='#7f7f7f', linestyle='--', alpha=0.8)
-        ax2.fill_between(df.index, df['equity'], initial_cash, where=(df['equity']>=initial_cash), facecolor='#d62728', alpha=0.1)
-        ax2.legend(loc='upper left')
-        ax2.set_title("策略资金 vs 基准对比")
-        ax2.grid(True, alpha=0.2)
+        # 根据策略显示不同的副图
+        if selected_strategy == "多重底入场策略":
+            # MACD图
+            ax2 = fig.add_subplot(312, sharex=ax1)
+            # 绘制MACD柱状图
+            colors = ['red' if x < 0 else 'green' for x in df['macd_hist']]
+            ax2.bar(df.index, df['macd_hist'], color=colors, alpha=0.6, width=1, label='MACD柱')
+            ax2.plot(df.index, df['dif'], label='DIF', color='blue', linewidth=1, alpha=0.7)
+            ax2.plot(df.index, df['dea'], label='DEA', color='orange', linewidth=1, alpha=0.7)
+            ax2.axhline(y=0, color='black', linestyle='-', linewidth=0.5, alpha=0.3)
+            ax2.axhline(y=params['zero_threshold'], color='purple', linestyle='--', linewidth=0.5, alpha=0.3, label='0轴阈值')
+            ax2.axhline(y=-params['zero_threshold'], color='purple', linestyle='--', linewidth=0.5, alpha=0.3)
+            # 标记MACD低点
+            macd_troughs = df[df['is_macd_trough'] == True]
+            if len(macd_troughs) > 0:
+                ax2.scatter(macd_troughs.index, macd_troughs['macd_hist'], 
+                           marker='o', c='purple', s=60, label='MACD低点', zorder=5)
+            ax2.legend(loc='upper left', fontsize=8)
+            ax2.set_title("MACD指标与底背离")
+            ax2.grid(True, alpha=0.2)
+            
+            # 资金曲线
+            ax3 = fig.add_subplot(313, sharex=ax1)
+            ax3.plot(df.index, df['equity'], label='策略净值', color='#d62728', linewidth=2)
+            ax3.plot(df.index, df['benchmark'], label='基准净值 (买入持有)', color='#7f7f7f', linestyle='--', alpha=0.8)
+            ax3.fill_between(df.index, df['equity'], initial_cash, where=(df['equity']>=initial_cash), facecolor='#d62728', alpha=0.1)
+            ax3.legend(loc='upper left')
+            ax3.set_title("策略资金 vs 基准对比")
+            ax3.grid(True, alpha=0.2)
+        else:
+            # 其他策略：资金曲线 vs 基准
+            ax2 = fig.add_subplot(212, sharex=ax1)
+            ax2.plot(df.index, df['equity'], label='策略净值', color='#d62728', linewidth=2)
+            ax2.plot(df.index, df['benchmark'], label='基准净值 (买入持有)', color='#7f7f7f', linestyle='--', alpha=0.8)
+            ax2.fill_between(df.index, df['equity'], initial_cash, where=(df['equity']>=initial_cash), facecolor='#d62728', alpha=0.1)
+            ax2.legend(loc='upper left')
+            ax2.set_title("策略资金 vs 基准对比")
+            ax2.grid(True, alpha=0.2)
         
         st.pyplot(fig)
 
