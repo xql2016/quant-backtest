@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import akshare as ak
+import yfinance as yf
 import datetime
 
 # ===========================
@@ -26,31 +27,66 @@ def get_stock_data(code, start, end, market='A股'):
         code: 股票代码
         start: 开始日期
         end: 结束日期
-        market: 市场类型，'A股' 或 '港股'
+        market: 市场类型，'A股'、'港股' 或 '美股'
     """
-    start_str = start.strftime("%Y%m%d")
-    end_str = end.strftime("%Y%m%d")
     try:
         # 根据市场类型选择不同的数据接口
         if market == 'A股':
+            start_str = start.strftime("%Y%m%d")
+            end_str = end.strftime("%Y%m%d")
             df = ak.stock_zh_a_hist(symbol=code, period="daily", start_date=start_str, end_date=end_str, adjust="qfq")
+            
+            if df.empty:
+                return None
+            
+            # 标准化列名
+            df.rename(columns={'日期': 'date', '收盘': 'close', '最高': 'high', '最低': 'low', '开盘': 'open', '成交量': 'volume'}, inplace=True)
+            df['date'] = pd.to_datetime(df['date'])
+            df.set_index('date', inplace=True)
+            
         elif market == '港股':
+            start_str = start.strftime("%Y%m%d")
+            end_str = end.strftime("%Y%m%d")
             df = ak.stock_hk_hist(symbol=code, period="daily", start_date=start_str, end_date=end_str, adjust="qfq")
+            
+            if df.empty:
+                return None
+            
+            # 标准化列名
+            df.rename(columns={'日期': 'date', '收盘': 'close', '最高': 'high', '最低': 'low', '开盘': 'open', '成交量': 'volume'}, inplace=True)
+            df['date'] = pd.to_datetime(df['date'])
+            df.set_index('date', inplace=True)
+            
+        elif market == '美股':
+            # 使用 yfinance 获取美股数据
+            ticker = yf.Ticker(code)
+            df = ticker.history(start=start, end=end)
+            
+            if df.empty:
+                return None
+            
+            # yfinance 返回的列名是英文大写，需要转换
+            df.rename(columns={
+                'Open': 'open',
+                'High': 'high', 
+                'Low': 'low',
+                'Close': 'close',
+                'Volume': 'volume'
+            }, inplace=True)
+            
+            # 重置索引，将日期作为普通列
+            df.reset_index(inplace=True)
+            df.rename(columns={'Date': 'date'}, inplace=True)
+            df['date'] = pd.to_datetime(df['date']).dt.tz_localize(None)  # 去除时区信息
+            df.set_index('date', inplace=True)
         else:
             return None
-            
-        if df.empty:
-            return None
-        
-        # 标准化列名
-        df.rename(columns={'日期': 'date', '收盘': 'close', '最高': 'high', '最低': 'low', '开盘': 'open', '成交量': 'volume'}, inplace=True)
-        df['date'] = pd.to_datetime(df['date'])
-        df.set_index('date', inplace=True)
         
         # 确保数据类型正确
         numeric_cols = ['close', 'high', 'low', 'open', 'volume']
         for col in numeric_cols:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
             
         return df
     except Exception as e:
@@ -67,7 +103,7 @@ st.sidebar.markdown("### 1. 基础回测设置")
 # 市场选择
 market_type = st.sidebar.selectbox(
     "选择市场",
-    ["A股", "港股"],
+    ["A股", "港股", "美股"],
     help="选择要回测的市场类型"
 )
 
@@ -83,6 +119,12 @@ elif market_type == "港股":
         "股票代码", 
         value="00700", 
         help="请输入5位港股代码，如 00700(腾讯)、09988(阿里)、01810(小米)"
+    )
+elif market_type == "美股":
+    stock_code = st.sidebar.text_input(
+        "股票代码", 
+        value="AAPL", 
+        help="请输入美股代码，如 AAPL(苹果)、TSLA(特斯拉)、MSFT(微软)"
     )
 
 # 默认回测最近3年
@@ -173,7 +215,8 @@ run_btn = st.sidebar.button("🚀 开始回测", type="primary")
 # 2. 核心逻辑处理
 # ===========================
 if run_btn:
-    market_flag = "🇨🇳" if market_type == "A股" else "🇭🇰"
+    market_flags = {"A股": "🇨🇳", "港股": "🇭🇰", "美股": "🇺🇸"}
+    market_flag = market_flags.get(market_type, "")
     st.title(f"📊 量化回测报告：{market_flag} {stock_code}")
     
     with st.spinner('正在拉取数据并进行量化计算...'):
@@ -551,4 +594,4 @@ if run_btn:
 
 else:
     # 欢迎页
-    st.info("👋 欢迎来到量化实验室！\n\n支持 🇨🇳 A股 和 🇭🇰 港股回测。请在左侧侧边栏选择市场、输入股票代码并选择策略，点击【开始回测】按钮。")
+    st.info("👋 欢迎来到量化实验室！\n\n支持 🇨🇳 A股、🇭🇰 港股 和 🇺🇸 美股回测。请在左侧侧边栏选择市场、输入股票代码并选择策略，点击【开始回测】按钮。")
