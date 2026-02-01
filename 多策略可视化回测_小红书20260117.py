@@ -188,11 +188,11 @@ elif selected_strategy == "布林带突破":
     params['std'] = st.sidebar.slider("标准差倍数", 1.0, 3.0, 2.0, step=0.1)
 
 elif selected_strategy == "波段策略":
-    st.sidebar.caption("逻辑：开始买入80%，跌5%加仓20%，涨20%且跌破MA5止盈")
+    st.sidebar.caption("逻辑：开始买入80%，跌5%加仓；止盈后突破MA5再次买入80%，循环操作")
     params['first_position'] = st.sidebar.slider("首次建仓比例 (%)", 50, 90, 80)
-    params['add_drop'] = st.sidebar.slider("加仓跌幅 (%)", 3, 10, 5)
-    params['profit_target'] = st.sidebar.slider("止盈涨幅 (%)", 10, 50, 20)
-    params['ma_period'] = st.sidebar.slider("均线周期 (MA)", 3, 10, 5)
+    params['add_drop'] = st.sidebar.slider("加仓跌幅 (%)", 3, 10, 5, help="比买入价跌多少加仓")
+    params['profit_target'] = st.sidebar.slider("止盈涨幅 (%)", 10, 50, 20, help="比买入价涨多少止盈")
+    params['ma_period'] = st.sidebar.slider("均线周期 (MA)", 3, 10, 5, help="止盈和重新入场的MA周期")
 
 elif selected_strategy == "多重底入场策略":
     st.sidebar.caption("逻辑：价格创新低但MACD柱不创新低（底背离），形成多重底入场")
@@ -401,19 +401,26 @@ if run_btn:
                         is_first_band = False
                         trade_log.append({'日期': date, '操作': f'买入{int(first_position_ratio*100)}%', '价格': price, '资产': cash + position*price})
                 
-                # 等待重新入场：价格回到初始价格时，重新买入80%
+                # 等待重新入场：价格突破MA5日线时，买入80%
                 elif position == 0 and waiting_for_reentry:
-                    if price <= current_start_price:
-                        cost = price * (1 + commission_rate)
-                        buy_cash = cash * first_position_ratio
-                        hands = int(buy_cash / (cost * 100))
-                        if hands > 0:
-                            position = hands * 100
-                            cash -= position * cost
-                            current_start_price = price  # 更新新的波段初始价格
-                            has_added = False  # 重置加仓标志
-                            waiting_for_reentry = False  # 重新开始持仓
-                            trade_log.append({'日期': date, '操作': f'重新买入{int(first_position_ratio*100)}%', '价格': price, '资产': cash + position*price})
+                    ma_value = row['ma']
+                    prev_close = df['close'].shift(1).loc[date]
+                    prev_ma = df['ma'].shift(1).loc[date]
+                    
+                    # 判断是否突破MA5：前一日在MA5下方，今日收盘价在MA5上方
+                    if not pd.isna(ma_value) and not pd.isna(prev_close) and not pd.isna(prev_ma):
+                        cross_above_ma = (prev_close < prev_ma) and (price > ma_value)
+                        if cross_above_ma:
+                            cost = price * (1 + commission_rate)
+                            buy_cash = cash * first_position_ratio
+                            hands = int(buy_cash / (cost * 100))
+                            if hands > 0:
+                                position = hands * 100
+                                cash -= position * cost
+                                current_start_price = price  # 更新新的波段初始价格
+                                has_added = False  # 重置加仓标志
+                                waiting_for_reentry = False  # 重新开始持仓
+                                trade_log.append({'日期': date, '操作': f'突破MA5买入{int(first_position_ratio*100)}%', '价格': price, '资产': cash + position*price})
                 
                 # 持仓中：判断加仓或止盈
                 elif position > 0:
@@ -520,12 +527,12 @@ if run_btn:
         elif selected_strategy == "双均线策略(SMA)":
             ax1.plot(df.index, df['sma_short'], color='#ff7f0e', alpha=0.6, label='短期均线')
             ax1.plot(df.index, df['sma_long'], color='#1f77b4', alpha=0.6, label='长期均线')
-        # 如果是波段策略，画均线和开始价格线
+        # 如果是波段策略，画均线和第一波段参考线
         elif selected_strategy == "波段策略":
-            ax1.plot(df.index, df['ma'], color='#ff7f0e', alpha=0.6, label=f'MA{params["ma_period"]}')
-            ax1.axhline(y=start_price, color='blue', linestyle='--', alpha=0.3, label='开始价格')
-            ax1.axhline(y=start_price * (1 - params['add_drop']/100), color='orange', linestyle=':', alpha=0.3, label='加仓线')
-            ax1.axhline(y=start_price * (1 + params['profit_target']/100), color='green', linestyle=':', alpha=0.3, label='止盈线')
+            ax1.plot(df.index, df['ma'], color='#ff7f0e', alpha=0.6, linewidth=2, label=f'MA{params["ma_period"]}')
+            ax1.axhline(y=start_price, color='blue', linestyle='--', alpha=0.3, label='首波段价格')
+            ax1.axhline(y=start_price * (1 - params['add_drop']/100), color='orange', linestyle=':', alpha=0.3, label=f'加仓参考(-{params["add_drop"]}%)')
+            ax1.axhline(y=start_price * (1 + params['profit_target']/100), color='green', linestyle=':', alpha=0.3, label=f'止盈参考(+{params["profit_target"]}%)')
         # 如果是多重底策略，显示MACD低点
         elif selected_strategy == "多重底入场策略":
             # 标记MACD低点
