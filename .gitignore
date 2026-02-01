@@ -55,3 +55,11 @@ venv.bak/
 .env
 .env.local
 
+# PyInstaller 打包生成的文件
+build/
+dist/
+*.manifest
+
+# 但保留配置文件
+!build_spec.spec
+
