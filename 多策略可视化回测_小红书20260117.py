@@ -192,7 +192,7 @@ elif selected_strategy == "波段策略":
     
     # 首次建仓参数
     st.sidebar.markdown("#### 🎯 首次建仓参数")
-    params['first_position'] = st.sidebar.slider("首次建仓比例 (%)", 50, 90, 80)
+    params['first_position'] = st.sidebar.slider("首次建仓比例 (%)", 50, 100, 80)
     params['first_add_drop'] = st.sidebar.slider("首次加仓跌幅 (%)", 3, 10, 5)
     params['first_profit_target'] = st.sidebar.slider("首次止盈涨幅 (%)", 10, 50, 20)
     params['first_profit_ma'] = st.sidebar.slider("首次止盈均线周期", 3, 20, 5)
