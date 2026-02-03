@@ -200,7 +200,7 @@ elif selected_strategy == "波段策略":
     # 后续入场参数
     st.sidebar.markdown("#### 🔄 后续入场参数")
     params['reentry_ma'] = st.sidebar.slider("突破均线周期（重新买入）", 3, 20, 5)
-    params['subsequent_position'] = st.sidebar.slider("后续建仓比例 (%)", 50, 90, 80)
+    params['subsequent_position'] = st.sidebar.slider("后续建仓比例 (%)", 50, 100, 80)
     params['subsequent_add_drop'] = st.sidebar.slider("后续加仓跌幅 (%)", 3, 10, 5)
     params['subsequent_profit_target'] = st.sidebar.slider("后续止盈涨幅 (%)", 0, 30, 15)
     params['subsequent_profit_ma'] = st.sidebar.slider("后续止盈均线周期", 3, 20, 5)
