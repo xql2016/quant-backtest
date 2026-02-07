@@ -211,7 +211,14 @@ if run_btn:
         # 2. 创建策略和回测引擎
         try:
             strategy = StrategyFactory.create_strategy(selected_strategy, params)
-            engine = BacktestEngine(initial_cash=initial_cash, commission_rate=commission_rate)
+            
+            # 创建回测引擎（支持小数股交易，最大化资金利用率）
+            engine = BacktestEngine(
+                initial_cash=initial_cash, 
+                commission_rate=commission_rate,
+                allow_fractional=True,  # 允许小数股交易
+                min_trade_value=0       # 无最小交易金额限制
+            )
             
             # 3. 运行回测
             result = engine.run(df, strategy)

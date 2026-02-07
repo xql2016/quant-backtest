@@ -254,16 +254,21 @@ class MultipleDivergenceStrategy(Strategy):
 class BacktestEngine:
     """回测引擎"""
     
-    def __init__(self, initial_cash: float = 100000, commission_rate: float = 0.0003):
+    def __init__(self, initial_cash: float = 100000, commission_rate: float = 0.0003, 
+                 allow_fractional: bool = True, min_trade_value: float = 0):
         """
         初始化回测引擎
         
         Args:
             initial_cash: 初始资金
             commission_rate: 双边手续费率
+            allow_fractional: 是否允许小数股交易（True=支持小数，False=只能整股）
+            min_trade_value: 最小交易金额（0=无限制）
         """
         self.initial_cash = initial_cash
         self.commission_rate = commission_rate
+        self.allow_fractional = allow_fractional
+        self.min_trade_value = min_trade_value
     
     def run(self, df: pd.DataFrame, strategy: Strategy) -> BacktestResult:
         """
@@ -299,14 +304,26 @@ class BacktestEngine:
             # 买入
             if sig == 1 and position == 0:
                 cost = price * (1 + self.commission_rate)
-                hands = int(cash / (cost * 100))
-                if hands > 0:
-                    position = hands * 100
-                    cash -= position * cost
+                
+                # 计算可购买数量（支持小数股）
+                if self.allow_fractional:
+                    # 小数股：使用全部资金，精确到小数点后8位
+                    max_shares = cash / cost
+                    position = round(max_shares, 8)
+                else:
+                    # 整股：只能买整数股
+                    position = int(cash / cost)
+                
+                # 检查是否满足最小交易金额
+                trade_value = position * price
+                if position > 0 and trade_value >= self.min_trade_value:
+                    actual_cost = position * cost
+                    cash -= actual_cost
                     trade_log.append({
                         '日期': date, 
                         '操作': '买入', 
-                        '价格': price, 
+                        '价格': price,
+                        '数量': position,
                         '资产': cash + position * price
                     })
             
@@ -353,15 +370,24 @@ class BacktestEngine:
                 position_ratio = params['first_position'] / 100
                 cost = price * (1 + self.commission_rate)
                 buy_cash = cash * position_ratio
-                hands = int(buy_cash / (cost * 100))
-                if hands > 0:
-                    position = hands * 100
-                    cash -= position * cost
+                
+                # 计算可购买数量（支持小数股）
+                if self.allow_fractional:
+                    max_shares = buy_cash / cost
+                    shares_to_buy = round(max_shares, 8)
+                else:
+                    shares_to_buy = int(buy_cash / cost)
+                
+                if shares_to_buy > 0:
+                    position = shares_to_buy
+                    actual_cost = position * cost
+                    cash -= actual_cost
                     current_start_price = price
                     trade_log.append({
                         '日期': date, 
                         '操作': f'首次买入{params["first_position"]}%', 
-                        '价格': price, 
+                        '价格': price,
+                        '数量': position,
                         '资产': cash + position * price
                     })
             
@@ -377,10 +403,18 @@ class BacktestEngine:
                         position_ratio = params['subsequent_position'] / 100
                         cost = price * (1 + self.commission_rate)
                         buy_cash = cash * position_ratio
-                        hands = int(buy_cash / (cost * 100))
-                        if hands > 0:
-                            position = hands * 100
-                            cash -= position * cost
+                        
+                        # 计算可购买数量（支持小数股）
+                        if self.allow_fractional:
+                            max_shares = buy_cash / cost
+                            shares_to_buy = round(max_shares, 8)
+                        else:
+                            shares_to_buy = int(buy_cash / cost)
+                        
+                        if shares_to_buy > 0:
+                            position = shares_to_buy
+                            actual_cost = position * cost
+                            cash -= actual_cost
                             current_start_price = price
                             has_added = False
                             waiting_for_reentry = False
@@ -388,7 +422,8 @@ class BacktestEngine:
                             trade_log.append({
                                 '日期': date, 
                                 '操作': f'突破MA{params["reentry_ma"]}买入{params["subsequent_position"]}%', 
-                                '价格': price, 
+                                '价格': price,
+                                '数量': position,
                                 '资产': cash + position * price
                             })
             
@@ -409,17 +444,25 @@ class BacktestEngine:
                 drop_threshold = current_start_price * (1 - add_drop_pct / 100)
                 if price <= drop_threshold and not has_added:
                     cost = price * (1 + self.commission_rate)
-                    hands = int(cash / (cost * 100))
-                    if hands > 0:
-                        add_shares = hands * 100
-                        cash -= add_shares * cost
+                    
+                    # 计算可购买数量（支持小数股）
+                    if self.allow_fractional:
+                        max_shares = cash / cost
+                        add_shares = round(max_shares, 8)
+                    else:
+                        add_shares = int(cash / cost)
+                    
+                    if add_shares > 0:
+                        actual_cost = add_shares * cost
+                        cash -= actual_cost
                         position += add_shares
                         has_added = True
                         add_ratio = int((1 - position_ratio) * 100)
                         trade_log.append({
                             '日期': date, 
                             '操作': f'加仓{add_ratio}%', 
-                            '价格': price, 
+                            '价格': price,
+                            '数量': add_shares,
                             '资产': cash + position * price
                         })
                 
