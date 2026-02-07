@@ -254,19 +254,24 @@ class MultipleDivergenceStrategy(Strategy):
 class BacktestEngine:
     """回测引擎"""
     
-    def __init__(self, initial_cash: float = 100000, commission_rate: float = 0.0003, 
-                 allow_fractional: bool = True, min_trade_value: float = 0):
+    def __init__(self, initial_cash: float = 100000, 
+                 buy_commission: float = 0.0003, 
+                 sell_commission: float = 0.0003,
+                 allow_fractional: bool = True, 
+                 min_trade_value: float = 0):
         """
         初始化回测引擎
         
         Args:
             initial_cash: 初始资金
-            commission_rate: 双边手续费率
+            buy_commission: 买入手续费率（如0.0003表示万三）
+            sell_commission: 卖出手续费率（如0.0003表示万三）
             allow_fractional: 是否允许小数股交易（True=支持小数，False=只能整股）
             min_trade_value: 最小交易金额（0=无限制）
         """
         self.initial_cash = initial_cash
-        self.commission_rate = commission_rate
+        self.buy_commission = buy_commission
+        self.sell_commission = sell_commission
         self.allow_fractional = allow_fractional
         self.min_trade_value = min_trade_value
     
@@ -303,7 +308,7 @@ class BacktestEngine:
             
             # 买入
             if sig == 1 and position == 0:
-                cost = price * (1 + self.commission_rate)
+                cost = price * (1 + self.buy_commission)
                 
                 # 计算可购买数量（支持小数股）
                 if self.allow_fractional:
@@ -329,7 +334,7 @@ class BacktestEngine:
             
             # 卖出
             elif sig == -1 and position > 0:
-                revenue = price * position * (1 - self.commission_rate)
+                revenue = price * position * (1 - self.sell_commission)
                 cash += revenue
                 position = 0
                 trade_log.append({
@@ -368,7 +373,7 @@ class BacktestEngine:
             # 第一个波段：第一天买入首批仓位
             if position == 0 and not waiting_for_reentry and is_first_band:
                 position_ratio = params['first_position'] / 100
-                cost = price * (1 + self.commission_rate)
+                cost = price * (1 + self.buy_commission)
                 buy_cash = cash * position_ratio
                 
                 # 计算可购买数量（支持小数股）
@@ -401,7 +406,7 @@ class BacktestEngine:
                     cross_above_ma = (prev_close < prev_reentry_ma) and (price > reentry_ma_value)
                     if cross_above_ma:
                         position_ratio = params['subsequent_position'] / 100
-                        cost = price * (1 + self.commission_rate)
+                        cost = price * (1 + self.buy_commission)
                         buy_cash = cash * position_ratio
                         
                         # 计算可购买数量（支持小数股）
@@ -443,7 +448,7 @@ class BacktestEngine:
                 # 加仓
                 drop_threshold = current_start_price * (1 - add_drop_pct / 100)
                 if price <= drop_threshold and not has_added:
-                    cost = price * (1 + self.commission_rate)
+                    cost = price * (1 + self.buy_commission)
                     
                     # 计算可购买数量（支持小数股）
                     if self.allow_fractional:
@@ -476,7 +481,7 @@ class BacktestEngine:
                     if not pd.isna(prev_profit_ma):
                         cross_below_ma = (prev_close >= prev_profit_ma) and (price < profit_ma_value)
                         if price >= profit_threshold and cross_below_ma:
-                            revenue = price * position * (1 - self.commission_rate)
+                            revenue = price * position * (1 - self.sell_commission)
                             cash += revenue
                             position = 0
                             has_added = False

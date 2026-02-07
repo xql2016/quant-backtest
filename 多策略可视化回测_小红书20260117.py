@@ -99,7 +99,21 @@ default_end = datetime.date.today()
 date_range = st.sidebar.date_input("回测区间", [default_start, default_end])
 
 initial_cash = st.sidebar.number_input("初始资金 (元)", value=100000, step=10000)
-commission_rate = st.sidebar.number_input("双边手续费率 (比如 0.0003)", value=0.0003, format="%.4f")
+
+# 手续费设置
+st.sidebar.markdown("**💰 手续费设置**")
+buy_commission = st.sidebar.number_input(
+    "买入手续费率", 
+    value=0.0003, 
+    format="%.4f",
+    help="买入时的手续费率，如0.0003表示万三"
+)
+sell_commission = st.sidebar.number_input(
+    "卖出手续费率", 
+    value=0.0003, 
+    format="%.4f",
+    help="卖出时的手续费率，如0.0003表示万三"
+)
 
 # --- 异常检查：日期 ---
 if len(date_range) == 2:
@@ -215,9 +229,10 @@ if run_btn:
             # 创建回测引擎（支持小数股交易，最大化资金利用率）
             engine = BacktestEngine(
                 initial_cash=initial_cash, 
-                commission_rate=commission_rate,
-                allow_fractional=True,  # 允许小数股交易
-                min_trade_value=0       # 无最小交易金额限制
+                buy_commission=buy_commission,    # 买入手续费率
+                sell_commission=sell_commission,  # 卖出手续费率
+                allow_fractional=True,            # 允许小数股交易
+                min_trade_value=0                 # 无最小交易金额限制
             )
             
             # 3. 运行回测
@@ -238,7 +253,7 @@ if run_btn:
             st.error(f"❌ 回测过程中出现错误: {e}")
             st.stop()
         
-        
+
         # ===========================
         # 3. 仪表盘展示
         # ===========================
