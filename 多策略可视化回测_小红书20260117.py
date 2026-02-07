@@ -29,32 +29,69 @@ st.sidebar.title("🎛️ 策略控制面板")
 # --- A. 基础设置 ---
 st.sidebar.markdown("### 1. 基础回测设置")
 
+# 数据源选择
+data_source = st.sidebar.selectbox(
+    "📊 数据源",
+    ["AKShare (A股/港股)", "YFinance (全球市场/加密货币)"],
+    help="选择数据获取来源"
+)
+
+# 根据数据源确定实际使用的source_type
+if "AKShare" in data_source:
+    source_type = "akshare"
+    market_options = ["A股", "港股", "美股"]
+else:  # YFinance
+    source_type = "yfinance"
+    market_options = ["美股", "港股", "加密货币"]
+
 # 市场选择
 market_type = st.sidebar.selectbox(
-    "选择市场",
-    ["A股", "港股", "美股"],
+    "🌍 选择市场",
+    market_options,
     help="选择要回测的市场类型"
 )
 
-# 根据市场类型显示不同的股票代码输入提示
-if market_type == "A股":
-    stock_code = st.sidebar.text_input(
-        "股票代码", 
-        value="000001", 
-        help="请输入6位A股代码，如 600519、000858"
-    )
-elif market_type == "港股":
-    stock_code = st.sidebar.text_input(
-        "股票代码", 
-        value="00700", 
-        help="请输入5位港股代码，如 00700(腾讯)、09988(阿里)、01810(小米)"
-    )
-elif market_type == "美股":
-    stock_code = st.sidebar.text_input(
-        "股票代码", 
-        value="AAPL", 
-        help="请输入美股代码，如 AAPL(苹果)、TSLA(特斯拉)、MSFT(微软)"
-    )
+# 根据数据源和市场类型显示不同的股票代码输入提示
+if source_type == "akshare":
+    # AKShare数据源
+    if market_type == "A股":
+        stock_code = st.sidebar.text_input(
+            "股票代码", 
+            value="000001", 
+            help="请输入6位A股代码，如 600519、000858"
+        )
+    elif market_type == "港股":
+        stock_code = st.sidebar.text_input(
+            "股票代码", 
+            value="00700", 
+            help="请输入5位港股代码，如 00700(腾讯)、09988(阿里)、01810(小米)"
+        )
+    elif market_type == "美股":
+        stock_code = st.sidebar.text_input(
+            "股票代码", 
+            value="AAPL", 
+            help="请输入美股代码，如 AAPL(苹果)、TSLA(特斯拉)、MSFT(微软)"
+        )
+else:
+    # YFinance数据源
+    if market_type == "美股":
+        stock_code = st.sidebar.text_input(
+            "股票代码", 
+            value="AAPL", 
+            help="美股代码示例：AAPL(苹果)、TSLA(特斯拉)、MSFT(微软)、NVDA(英伟达)"
+        )
+    elif market_type == "港股":
+        stock_code = st.sidebar.text_input(
+            "股票代码", 
+            value="0700.HK", 
+            help="港股代码需加.HK后缀，如 0700.HK(腾讯)、9988.HK(阿里)、1810.HK(小米)"
+        )
+    elif market_type == "加密货币":
+        stock_code = st.sidebar.text_input(
+            "加密货币代码", 
+            value="BTC-USD", 
+            help="加密货币代码示例：BTC-USD(比特币)、ETH-USD(以太坊)、BNB-USD(币安币)"
+        )
 
 # 默认回测最近3年
 default_start = datetime.date.today() - datetime.timedelta(days=365*3)
@@ -155,13 +192,17 @@ run_btn = st.sidebar.button("🚀 开始回测", type="primary")
 # 2. 核心逻辑处理
 # ===========================
 if run_btn:
-    market_flags = {"A股": "🇨🇳", "港股": "🇭🇰", "美股": "🇺🇸"}
+    market_flags = {"A股": "🇨🇳", "港股": "🇭🇰", "美股": "🇺🇸", "加密货币": "💎"}
     market_flag = market_flags.get(market_type, "")
-    st.title(f"📊 量化回测报告：{market_flag} {stock_code}")
     
-    with st.spinner('正在拉取数据并进行量化计算...'):
-        # 1. 获取数据（使用数据源模块）
-        df = get_stock_data(stock_code, start_date, end_date, market=market_type, source_type='akshare')
+    # 显示数据源信息
+    data_source_name = "AKShare" if source_type == "akshare" else "YFinance"
+    st.title(f"📊 量化回测报告：{market_flag} {stock_code}")
+    st.caption(f"数据源：{data_source_name} | 市场：{market_type}")
+    
+    with st.spinner(f'正在从 {data_source_name} 拉取数据并进行量化计算...'):
+        # 1. 获取数据（使用用户选择的数据源）
+        df = get_stock_data(stock_code, start_date, end_date, market=market_type, source_type=source_type)
         
         if df is None or df.empty:
             st.error(f"❌ 无法获取代码 {stock_code} 的数据，请检查代码是否正确，或该股在区间内已退市。")
@@ -307,4 +348,38 @@ if run_btn:
 
 else:
     # 欢迎页
-    st.info("👋 欢迎来到量化实验室！\n\n支持 🇨🇳 A股、🇭🇰 港股 和 🇺🇸 美股回测。请在左侧侧边栏选择市场、输入股票代码并选择策略，点击【开始回测】按钮。")
+    st.info("👋 欢迎来到量化实验室！")
+    
+    st.markdown("""
+    ### 📊 支持的数据源
+    
+    **AKShare (A股/港股)**
+    - 🇨🇳 A股：完整的历史数据和实时行情
+    - 🇭🇰 港股：港交所上市公司数据
+    - 🇺🇸 美股：部分美股数据支持
+    
+    **YFinance (全球市场/加密货币)**
+    - 🇺🇸 美股：纳斯达克、纽交所等
+    - 🇭🇰 港股：港交所数据（需加.HK后缀）
+    - 💎 加密货币：比特币、以太坊等数字资产
+    
+    ### 🚀 开始使用
+    
+    1. 在左侧选择**数据源**
+    2. 选择**市场类型**
+    3. 输入**股票/资产代码**
+    4. 设置**回测区间**和**策略参数**
+    5. 点击【🚀 开始回测】按钮
+    
+    ### 💡 代码示例
+    
+    | 市场 | 数据源 | 代码示例 |
+    |------|--------|----------|
+    | A股 | AKShare | `000001`, `600519`, `000858` |
+    | 港股 | AKShare | `00700`, `09988`, `01810` |
+    | 港股 | YFinance | `0700.HK`, `9988.HK`, `1810.HK` |
+    | 美股 | YFinance | `AAPL`, `TSLA`, `MSFT`, `NVDA` |
+    | 加密货币 | YFinance | `BTC-USD`, `ETH-USD`, `BNB-USD` |
+    """)
+    
+    st.success("💡 提示：不同数据源有不同的代码格式，请根据界面提示输入正确的代码！")

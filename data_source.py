@@ -218,6 +218,135 @@ class AKShareDataSource(DataSource):
         return df
 
 
+class YFinanceDataSource(DataSource):
+    """YFinance数据源 - 支持美股、港股、加密货币"""
+    
+    def __init__(self):
+        """初始化YFinance数据源"""
+        self.yf = None
+    
+    def fetch_data(self, code: str, start_date: datetime.date, end_date: datetime.date, **kwargs) -> Optional[pd.DataFrame]:
+        """
+        从YFinance获取数据
+        
+        Args:
+            code: 资产代码
+                - 美股: AAPL, TSLA, MSFT等
+                - 港股: 0700.HK, 9988.HK等（需要加.HK后缀）
+                - 加密货币: BTC-USD, ETH-USD等
+            start_date: 开始日期
+            end_date: 结束日期
+            **kwargs: 其他参数
+                - asset_type: 资产类型（'stock', 'crypto'），可选
+                - interval: 数据间隔（'1d', '1h'等），默认'1d'
+            
+        Returns:
+            标准化的DataFrame
+        """
+        # 延迟导入
+        if self.yf is None:
+            try:
+                import yfinance as yf
+                self.yf = yf
+            except Exception as e:
+                print(f"❌ yfinance导入失败: {e}")
+                print("💡 解决方案：pip install yfinance")
+                return None
+        
+        try:
+            # 获取参数
+            asset_type = kwargs.get('asset_type', 'stock')
+            interval = kwargs.get('interval', '1d')
+            
+            # 创建Ticker对象
+            ticker = self.yf.Ticker(code)
+            
+            # 获取历史数据
+            df = ticker.history(
+                start=start_date, 
+                end=end_date,
+                interval=interval
+            )
+            
+            if df.empty:
+                print(f"⚠️  未获取到{code}的数据，请检查代码是否正确")
+                return None
+            
+            # 标准化列名
+            df.rename(columns={
+                'Open': 'open',
+                'High': 'high', 
+                'Low': 'low',
+                'Close': 'close',
+                'Volume': 'volume'
+            }, inplace=True)
+            
+            # 重置索引
+            df.reset_index(inplace=True)
+            df.rename(columns={'Date': 'date'}, inplace=True)
+            
+            # 标准化DataFrame
+            return self._standardize_dataframe(df)
+            
+        except Exception as e:
+            print(f"❌ 数据获取失败: {e}")
+            return None
+    
+    def _standardize_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
+        """标准化数据框格式"""
+        # 转换日期列
+        df['date'] = pd.to_datetime(df['date'])
+        
+        # 去除时区信息（如果有）
+        if df['date'].dt.tz is not None:
+            df['date'] = df['date'].dt.tz_localize(None)
+        
+        # 设置日期为索引
+        df.set_index('date', inplace=True)
+        
+        # 确保数据类型正确
+        numeric_cols = ['close', 'high', 'low', 'open', 'volume']
+        for col in numeric_cols:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+        
+        return df
+    
+    def get_info(self, code: str) -> dict:
+        """
+        获取资产信息
+        
+        Args:
+            code: 资产代码
+            
+        Returns:
+            包含资产信息的字典
+        """
+        if self.yf is None:
+            try:
+                import yfinance as yf
+                self.yf = yf
+            except Exception as e:
+                return {'error': str(e)}
+        
+        try:
+            ticker = self.yf.Ticker(code)
+            info = ticker.info
+            
+            # 提取关键信息
+            result = {
+                'name': info.get('longName', info.get('shortName', code)),
+                'market': info.get('market', 'Unknown'),
+                'currency': info.get('currency', 'Unknown'),
+                'exchange': info.get('exchange', 'Unknown'),
+                'type': info.get('quoteType', 'Unknown')
+            }
+            
+            return result
+        except Exception as e:
+            return {'error': str(e)}
+
+
 class CSVDataSource(DataSource):
     """CSV文件数据源（示例扩展）"""
     
@@ -327,7 +456,7 @@ class DataSourceFactory:
         创建数据源实例
         
         Args:
-            source_type: 数据源类型 ('akshare', 'csv', 'database')
+            source_type: 数据源类型 ('akshare', 'yfinance', 'csv', 'database')
             **kwargs: 数据源特定的参数
             
         Returns:
@@ -335,6 +464,8 @@ class DataSourceFactory:
         """
         if source_type == 'akshare':
             return AKShareDataSource()
+        elif source_type == 'yfinance':
+            return YFinanceDataSource()
         elif source_type == 'csv':
             csv_dir = kwargs.get('csv_dir', './data')
             return CSVDataSource(csv_dir)
