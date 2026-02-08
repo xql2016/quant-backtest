@@ -4,6 +4,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 import datetime
 
+# SSL 配置（解决证书验证问题）
+try:
+    from ssl_config import disable_ssl_verification
+    # 仅在开发环境禁用 SSL 验证
+    disable_ssl_verification()
+except ImportError:
+    pass  # 如果没有 ssl_config.py，继续正常运行
+
 # 导入自定义模块
 from data_source import get_stock_data
 from strategy_backtest import StrategyFactory, BacktestEngine

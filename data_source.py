@@ -87,7 +87,11 @@ class AKShareDataSource(DataSource):
             else:
                 return None
         except Exception as e:
-            print(f"数据获取失败: {e}")
+            print(f"❌ 数据获取失败: {e}")
+            print(f"   错误类型: {type(e).__name__}")
+            # 打印详细错误栈以便调试
+            import traceback
+            traceback.print_exc()
             return None
     
     def _fetch_a_stock(self, code: str, start_date: datetime.date, end_date: datetime.date) -> Optional[pd.DataFrame]:
