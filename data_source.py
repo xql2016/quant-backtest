@@ -69,7 +69,7 @@ class AKShareDataSource(DataSource):
             code: 股票代码
             start_date: 开始日期
             end_date: 结束日期
-            market: 市场类型 ('A股', '港股', '美股')
+            market: 市场类型 ('A股', '港股', '美股', '可转债')
             **kwargs: 其他参数（AKShare不支持interval，会被忽略）
             
         Returns:
@@ -82,6 +82,8 @@ class AKShareDataSource(DataSource):
                 return _self._fetch_hk_stock(code, start_date, end_date)
             elif market == '美股':
                 return _self._fetch_us_stock(code, start_date, end_date)
+            elif market == '可转债':
+                return _self._fetch_convertible_bond(code, start_date, end_date)
             else:
                 return None
         except Exception as e:
@@ -200,6 +202,114 @@ class AKShareDataSource(DataSource):
             df.rename(columns={'Datetime': 'date'}, inplace=True)
         
         return self._standardize_dataframe(df)
+    
+    def _fetch_convertible_bond(self, code: str, start_date: datetime.date, end_date: datetime.date) -> Optional[pd.DataFrame]:
+        """
+        获取可转债数据
+        
+        注意：AKShare的可转债历史数据接口在某些系统上可能不可用，
+        这是由于依赖库py_mini_racer的兼容性问题。
+        """
+        # 延迟导入
+        if self.ak is None:
+            try:
+                import akshare as ak
+                self.ak = ak
+            except Exception as e:
+                print(f"❌ AKShare导入失败: {e}")
+                print("💡 解决方案：")
+                print("   pip install --upgrade akshare")
+                print("   pip install --upgrade py-mini-racer")
+                return None
+        
+        try:
+            # 获取可转债历史数据
+            # AKShare接口：bond_zh_hs_cov_daily 或 bond_cov_jsl
+            # 尝试不同的接口
+            df = None
+            
+            # 方法1：尝试 bond_zh_hs_cov_daily
+            try:
+                df = self.ak.bond_zh_hs_cov_daily(symbol=code)
+            except AttributeError:
+                pass
+            
+            # 方法2：如果方法1失败，尝试其他接口
+            if df is None or df.empty:
+                try:
+                    # 使用集思录接口获取所有可转债，然后筛选
+                    all_bonds = self.ak.bond_cov_jsl()
+                    if code in all_bonds['代码'].values:
+                        # 只能获取实时数据，无法获取历史数据
+                        print(f"⚠️  AKShare暂不支持可转债 {code} 的历史数据")
+                        print(f"💡 提示：当前AKShare版本可能不支持可转债历史K线数据")
+                        return None
+                except:
+                    pass
+            
+            if df is None or df.empty:
+                print(f"⚠️  未获取到可转债 {code} 的数据")
+                print("💡 提示：")
+                print("   1. 请确认可转债代码正确（6位数字，如 128039）")
+                print("   2. AKShare可能不支持该可转债的历史数据")
+                print("   3. 建议：优先使用A股数据进行回测")
+                return None
+            
+            # 标准化列名
+            # 可能的列名格式：日期/时间, 开盘, 收盘, 最高, 最低, 成交量
+            column_mapping = {
+                '日期': 'date',
+                '时间': 'date',
+                'date': 'date',
+                '开盘': 'open',
+                '开盘价': 'open',
+                'open': 'open',
+                '收盘': 'close',
+                '收盘价': 'close',
+                'close': 'close',
+                '最高': 'high',
+                '最高价': 'high',
+                'high': 'high',
+                '最低': 'low',
+                '最低价': 'low',
+                'low': 'low',
+                '成交量': 'volume',
+                'volume': 'volume'
+            }
+            
+            # 重命名列
+            df.rename(columns=column_mapping, inplace=True)
+            
+            # 检查必要列是否存在
+            required_cols = ['date', 'open', 'high', 'low', 'close', 'volume']
+            missing_cols = [col for col in required_cols if col not in df.columns]
+            if missing_cols:
+                print(f"❌ 数据列不完整，缺失：{missing_cols}")
+                print(f"   实际列：{df.columns.tolist()}")
+                return None
+            
+            # 转换日期格式
+            df['date'] = pd.to_datetime(df['date'])
+            
+            # 过滤日期范围
+            df = df[(df['date'] >= pd.Timestamp(start_date)) & 
+                   (df['date'] <= pd.Timestamp(end_date))]
+            
+            if df.empty:
+                print(f"⚠️  日期范围 {start_date} 至 {end_date} 内无数据")
+                return None
+            
+            return self._standardize_dataframe(df)
+            
+        except Exception as e:
+            print(f"❌ 可转债数据获取失败: {e}")
+            print(f"💡 提示：")
+            print(f"   1. AKShare可能不支持可转债历史K线数据")
+            print(f"   2. 升级AKShare：pip install --upgrade akshare")
+            print(f"   3. 建议：优先使用A股、港股或加密货币数据")
+            import traceback
+            traceback.print_exc()
+            return None
     
     def _standardize_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         """标准化数据框格式"""
@@ -428,6 +538,229 @@ class YFinanceDataSource(DataSource):
             return {'error': str(e)}
 
 
+class TushareDataSource(DataSource):
+    """Tushare数据源 - 专业金融数据接口"""
+    
+    def __init__(self, token: str = None):
+        """
+        初始化Tushare数据源
+        
+        Args:
+            token: Tushare API Token
+        """
+        self.ts = None
+        self.pro = None
+        self.token = token
+    
+    def _init_tushare(self):
+        """延迟初始化Tushare"""
+        if self.ts is None:
+            try:
+                import tushare as ts
+                self.ts = ts
+                
+                # 直接使用token初始化pro接口（不调用set_token，避免文件写入权限问题）
+                if self.token:
+                    self.pro = ts.pro_api(self.token)
+                else:
+                    print("❌ Tushare Token未配置")
+                    return False
+                
+            except Exception as e:
+                print(f"❌ Tushare初始化失败: {e}")
+                print("💡 解决方案：")
+                print("   1. 确保已安装 tushare: pip install tushare")
+                print("   2. 检查Token是否正确")
+                print("   3. 确认网络连接正常")
+                import traceback
+                traceback.print_exc()
+                return False
+        return True
+    
+    @st.cache_data(ttl=3600)
+    def fetch_data(_self, code: str, start_date: datetime.date, end_date: datetime.date, market: str = 'A股', **kwargs) -> Optional[pd.DataFrame]:
+        """
+        从Tushare获取数据
+        
+        Args:
+            code: 股票/可转债代码
+            start_date: 开始日期
+            end_date: 结束日期
+            market: 市场类型 ('A股', '可转债')
+            
+        Returns:
+            标准化的DataFrame
+        """
+        if not _self._init_tushare():
+            return None
+        
+        try:
+            if market == 'A股':
+                return _self._fetch_stock(code, start_date, end_date)
+            elif market == '可转债':
+                return _self._fetch_convertible_bond(code, start_date, end_date)
+            else:
+                print(f"⚠️ Tushare暂不支持市场类型: {market}")
+                return None
+        except Exception as e:
+            print(f"❌ 数据获取失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
+    def _fetch_stock(self, code: str, start_date: datetime.date, end_date: datetime.date) -> Optional[pd.DataFrame]:
+        """获取A股数据"""
+        try:
+            # Tushare代码格式：600000.SH, 000001.SZ
+            ts_code = self._format_stock_code(code)
+            
+            # 转换日期格式
+            start_str = start_date.strftime("%Y%m%d")
+            end_str = end_date.strftime("%Y%m%d")
+            
+            # 获取日线数据（前复权）
+            df = self.pro.daily(ts_code=ts_code, start_date=start_str, end_date=end_str)
+            
+            if df is None or df.empty:
+                print(f"⚠️ 未获取到 {code} 的数据")
+                return None
+            
+            # 获取复权因子
+            adj_factor = self.pro.adj_factor(ts_code=ts_code, start_date=start_str, end_date=end_str)
+            
+            if adj_factor is not None and not adj_factor.empty:
+                # 合并复权因子
+                df = df.merge(adj_factor[['trade_date', 'adj_factor']], on='trade_date', how='left')
+                df['adj_factor'].fillna(method='ffill', inplace=True)
+                
+                # 前复权计算
+                df['open'] = df['open'] * df['adj_factor']
+                df['high'] = df['high'] * df['adj_factor']
+                df['low'] = df['low'] * df['adj_factor']
+                df['close'] = df['close'] * df['adj_factor']
+            else:
+                # 没有复权因子，使用原始数据
+                df['open'] = df['open']
+                df['high'] = df['high']
+                df['low'] = df['low']
+                df['close'] = df['close']
+            
+            # 标准化列名
+            df['date'] = pd.to_datetime(df['trade_date'])
+            df['volume'] = df['vol'] * 100  # Tushare的成交量单位是手，转换为股
+            
+            # 选择需要的列
+            df = df[['date', 'open', 'high', 'low', 'close', 'volume']]
+            
+            return self._standardize_dataframe(df)
+            
+        except Exception as e:
+            print(f"❌ A股数据获取失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
+    def _fetch_convertible_bond(self, code: str, start_date: datetime.date, end_date: datetime.date) -> Optional[pd.DataFrame]:
+        """获取可转债数据"""
+        try:
+            # Tushare可转债代码格式：128039.SZ, 113050.SH
+            ts_code = self._format_bond_code(code)
+            
+            # 转换日期格式
+            start_str = start_date.strftime("%Y%m%d")
+            end_str = end_date.strftime("%Y%m%d")
+            
+            # 获取可转债日线数据
+            df = self.pro.cb_daily(ts_code=ts_code, start_date=start_str, end_date=end_str)
+            
+            if df is None or df.empty:
+                print(f"⚠️ 未获取到可转债 {code} 的数据")
+                print(f"💡 提示：")
+                print(f"   1. 请确认可转债代码正确（如：128039）")
+                print(f"   2. 检查日期范围是否在可转债存续期内")
+                print(f"   3. 确认您的Tushare积分权限（可转债数据需要2000积分）")
+                return None
+            
+            # 标准化列名
+            df['date'] = pd.to_datetime(df['trade_date'])
+            df.rename(columns={
+                'open': 'open',
+                'high': 'high',
+                'low': 'low',
+                'close': 'close',
+                'vol': 'volume'
+            }, inplace=True)
+            
+            # Tushare的成交量单位是手（100张），转换为张
+            df['volume'] = df['volume'] * 100
+            
+            # 选择需要的列
+            df = df[['date', 'open', 'high', 'low', 'close', 'volume']]
+            
+            return self._standardize_dataframe(df)
+            
+        except Exception as e:
+            print(f"❌ 可转债数据获取失败: {e}")
+            print(f"💡 提示：")
+            print(f"   1. 确认Tushare Token已正确配置")
+            print(f"   2. 确认您的积分权限（可转债数据需要2000积分）")
+            print(f"   3. 检查网络连接")
+            import traceback
+            traceback.print_exc()
+            return None
+    
+    def _format_stock_code(self, code: str) -> str:
+        """格式化A股代码为Tushare格式"""
+        # 去除可能的后缀
+        code = code.split('.')[0]
+        
+        # 判断市场
+        if code.startswith('6'):
+            return f"{code}.SH"  # 上海主板
+        elif code.startswith('0') or code.startswith('3'):
+            return f"{code}.SZ"  # 深圳主板/创业板
+        elif code.startswith('8') or code.startswith('4'):
+            return f"{code}.BJ"  # 北京证券交易所
+        else:
+            # 默认尝试深圳
+            return f"{code}.SZ"
+    
+    def _format_bond_code(self, code: str) -> str:
+        """格式化可转债代码为Tushare格式"""
+        # 去除可能的后缀
+        code = code.split('.')[0]
+        
+        # 可转债代码规则：
+        # 11xxxx 上交所
+        # 12xxxx 深交所
+        if code.startswith('11'):
+            return f"{code}.SH"
+        elif code.startswith('12'):
+            return f"{code}.SZ"
+        else:
+            # 默认尝试深圳
+            return f"{code}.SZ"
+    
+    def _standardize_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
+        """标准化数据框格式"""
+        # 转换日期列
+        df['date'] = pd.to_datetime(df['date'])
+        
+        # 设置日期为索引
+        df.set_index('date', inplace=True)
+        
+        # 按日期排序（Tushare返回的数据是倒序的）
+        df.sort_index(inplace=True)
+        
+        # 确保数据类型正确
+        numeric_cols = ['open', 'high', 'low', 'close', 'volume']
+        for col in numeric_cols:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+        
+        return df
+
+
 class CSVDataSource(DataSource):
     """CSV文件数据源（示例扩展）"""
     
@@ -537,8 +870,9 @@ class DataSourceFactory:
         创建数据源实例
         
         Args:
-            source_type: 数据源类型 ('akshare', 'yfinance', 'csv', 'database')
+            source_type: 数据源类型 ('akshare', 'yfinance', 'tushare', 'csv', 'database')
             **kwargs: 数据源特定的参数
+                - token: Tushare API Token
             
         Returns:
             DataSource实例
@@ -547,6 +881,9 @@ class DataSourceFactory:
             return AKShareDataSource()
         elif source_type == 'yfinance':
             return YFinanceDataSource()
+        elif source_type == 'tushare':
+            token = kwargs.get('token', None)
+            return TushareDataSource(token=token)
         elif source_type == 'csv':
             csv_dir = kwargs.get('csv_dir', './data')
             return CSVDataSource(csv_dir)
@@ -569,11 +906,19 @@ def get_stock_data(code: str, start_date: datetime.date, end_date: datetime.date
         end_date: 结束日期
         market: 市场类型
         source_type: 数据源类型
-        **kwargs: 其他参数（如interval='1h'用于小时线数据）
+        **kwargs: 其他参数
+            - interval: 时间粒度（如'1h'用于小时线数据）
+            - token: Tushare API Token
         
     Returns:
         标准化的DataFrame
     """
-    data_source = DataSourceFactory.create_data_source(source_type)
+    # 提取数据源特定参数
+    token = kwargs.pop('token', None)
+    
+    # 创建数据源
+    data_source = DataSourceFactory.create_data_source(source_type, token=token)
+    
+    # 获取数据
     return data_source.fetch_data(code, start_date, end_date, market=market, **kwargs)
 

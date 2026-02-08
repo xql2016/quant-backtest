@@ -32,17 +32,26 @@ st.sidebar.markdown("### 1. 基础回测设置")
 # 数据源选择
 data_source = st.sidebar.selectbox(
     "📊 数据源",
-    ["AKShare (A股/港股)", "YFinance (全球市场/加密货币)"],
+    ["Tushare (A股/可转债)", "AKShare (A股/港股)", "YFinance (全球市场/加密货币)"],
     help="选择数据获取来源"
 )
 
 # 根据数据源确定实际使用的source_type
-if "AKShare" in data_source:
+if "Tushare" in data_source:
+    source_type = "tushare"
+    market_options = ["A股", "可转债"]
+    
+    # Tushare Token 内置配置（不在UI显示）
+    tushare_token = "9d1b233c81c719297da330bc01f946fa1d88040946cb8d85ed02e9a4"
+    
+elif "AKShare" in data_source:
     source_type = "akshare"
-    market_options = ["A股", "港股", "美股"]
+    market_options = ["A股", "港股", "美股"]  # 移除可转债选项
+    tushare_token = None
 else:  # YFinance
     source_type = "yfinance"
     market_options = ["美股", "港股", "加密货币"]
+    tushare_token = None
 
 # 市场选择
 market_type = st.sidebar.selectbox(
@@ -52,7 +61,21 @@ market_type = st.sidebar.selectbox(
 )
 
 # 根据数据源和市场类型显示不同的股票代码输入提示
-if source_type == "akshare":
+if source_type == "tushare":
+    # Tushare数据源
+    if market_type == "A股":
+        stock_code = st.sidebar.text_input(
+            "股票代码", 
+            value="000001", 
+            help="请输入6位A股代码，如 600519、000858"
+        )
+    elif market_type == "可转债":
+        stock_code = st.sidebar.text_input(
+            "可转债代码", 
+            value="127035", 
+            help="请输入6位可转债代码，如 128039(国光转债)、113050(南银转债)、127045(海亮转债)"
+        )
+elif source_type == "akshare":
     # AKShare数据源
     if market_type == "A股":
         stock_code = st.sidebar.text_input(
@@ -238,11 +261,12 @@ run_btn = st.sidebar.button("🚀 开始回测", type="primary")
 # 2. 核心逻辑处理
 # ===========================
 if run_btn:
-    market_flags = {"A股": "🇨🇳", "港股": "🇭🇰", "美股": "🇺🇸", "加密货币": "💎"}
+    market_flags = {"A股": "🇨🇳", "港股": "🇭🇰", "美股": "🇺🇸", "加密货币": "💎", "可转债": "📜"}
     market_flag = market_flags.get(market_type, "")
     
     # 显示数据源信息
-    data_source_name = "AKShare" if source_type == "akshare" else "YFinance"
+    data_source_names = {"akshare": "AKShare", "yfinance": "YFinance", "tushare": "Tushare"}
+    data_source_name = data_source_names.get(source_type, "未知")
     interval_names = {"1h": "1小时线", "4h": "4小时线", "1d": "日线"}
     interval_name = interval_names.get(interval, "日线")
     st.title(f"📊 量化回测报告：{market_flag} {stock_code}")
@@ -253,6 +277,8 @@ if run_btn:
         # 如果是YFinance且支持interval参数，则传入
         if source_type == "yfinance":
             df = get_stock_data(stock_code, start_date, end_date, market=market_type, source_type=source_type, interval=interval)
+        elif source_type == "tushare":
+            df = get_stock_data(stock_code, start_date, end_date, market=market_type, source_type=source_type, token=tushare_token)
         else:
             df = get_stock_data(stock_code, start_date, end_date, market=market_type, source_type=source_type)
         
@@ -413,6 +439,12 @@ else:
     st.markdown("""
     ### 📊 支持的数据源
     
+    **Tushare (专业数据源)** ⭐ **推荐**
+    - 🇨🇳 A股：完整的历史数据，前复权处理（日线）
+    - 📜 可转债：上交所、深交所可转债数据（日线）
+    - 🔑 **特点**：数据质量高、更新及时、接口稳定
+    - 💡 **提示**：已内置Token，可转债数据需要2000积分权限
+    
     **AKShare (A股/港股)**
     - 🇨🇳 A股：完整的历史数据和实时行情（日线）
     - 🇭🇰 港股：港交所上市公司数据（日线）
@@ -426,7 +458,7 @@ else:
     ### ⏰ 时间粒度支持
     
     - **日线 (1d)**：所有市场均支持，无时间限制
-    - **4小时线 (4h)**：仅加密货币支持，最多回溯730天（约2年）⭐ **新增**
+    - **4小时线 (4h)**：仅加密货币支持，最多回溯730天（约2年）
     - **1小时线 (1h)**：仅加密货币支持，最多回溯730天（约2年）
     
     ### 🚀 开始使用
@@ -443,6 +475,7 @@ else:
     |------|--------|----------|
     | A股 | AKShare | `000001`, `600519`, `000858` |
     | 港股 | AKShare | `00700`, `09988`, `01810` |
+    | 可转债 | AKShare | `128039`, `113050`, `127045` ⭐ |
     | 港股 | YFinance | `0700.HK`, `9988.HK`, `1810.HK` |
     | 美股 | YFinance | `AAPL`, `TSLA`, `MSFT`, `NVDA` |
     | 加密货币 | YFinance | `BTC-USD`, `ETH-USD`, `BNB-USD` |
