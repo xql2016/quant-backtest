@@ -11,7 +11,7 @@ matplotlib
 # 数据源
 akshare
 yfinance
+tushare
 
 # 可选：其他数据源（按需安装）
-# tushare
 # sqlalchemy
