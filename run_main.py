@@ -93,10 +93,34 @@ else:
             help="加密货币代码示例：BTC-USD(比特币)、ETH-USD(以太坊)、BNB-USD(币安币)"
         )
 
-# 默认回测最近3年
+# 默认回测最近3年（需要先定义，供后续使用）
 default_start = datetime.date.today() - datetime.timedelta(days=365*3)
 default_end = datetime.date.today()
 date_range = st.sidebar.date_input("回测区间", [default_start, default_end])
+
+# 时间粒度选择（只有加密货币支持小时线）
+if source_type == "yfinance" and market_type == "加密货币":
+    time_interval = st.sidebar.selectbox(
+        "⏰ 时间粒度",
+        ["日线 (1d)", "1小时线 (1h)"],
+        help="加密货币支持小时级数据，最多回溯约730天"
+    )
+    # 提取实际的interval参数
+    if "1h" in time_interval:
+        interval = "1h"
+        # 1小时线最多支持730天
+        max_days = 730
+        if len(date_range) == 2:
+            days_diff = (date_range[1] - date_range[0]).days
+            if days_diff > max_days:
+                st.sidebar.warning(f"⚠️ 1小时线最多支持{max_days}天数据，建议缩短回测区间")
+    else:
+        interval = "1d"
+else:
+    # 其他市场只支持日线
+    interval = "1d"
+    if source_type == "yfinance" and market_type != "加密货币":
+        st.sidebar.info("ℹ️ 当前市场仅支持日线数据")
 
 initial_cash = st.sidebar.number_input("初始资金 (元)", value=100000, step=10000)
 
@@ -211,12 +235,17 @@ if run_btn:
     
     # 显示数据源信息
     data_source_name = "AKShare" if source_type == "akshare" else "YFinance"
+    interval_name = "1小时线" if interval == "1h" else "日线"
     st.title(f"📊 量化回测报告：{market_flag} {stock_code}")
-    st.caption(f"数据源：{data_source_name} | 市场：{market_type}")
+    st.caption(f"数据源：{data_source_name} | 市场：{market_type} | 时间粒度：{interval_name}")
     
     with st.spinner(f'正在从 {data_source_name} 拉取数据并进行量化计算...'):
         # 1. 获取数据（使用用户选择的数据源）
-        df = get_stock_data(stock_code, start_date, end_date, market=market_type, source_type=source_type)
+        # 如果是YFinance且支持interval参数，则传入
+        if source_type == "yfinance":
+            df = get_stock_data(stock_code, start_date, end_date, market=market_type, source_type=source_type, interval=interval)
+        else:
+            df = get_stock_data(stock_code, start_date, end_date, market=market_type, source_type=source_type)
         
         if df is None or df.empty:
             st.error(f"❌ 无法获取代码 {stock_code} 的数据，请检查代码是否正确，或该股在区间内已退市。")
@@ -376,14 +405,19 @@ else:
     ### 📊 支持的数据源
     
     **AKShare (A股/港股)**
-    - 🇨🇳 A股：完整的历史数据和实时行情
-    - 🇭🇰 港股：港交所上市公司数据
-    - 🇺🇸 美股：部分美股数据支持
+    - 🇨🇳 A股：完整的历史数据和实时行情（日线）
+    - 🇭🇰 港股：港交所上市公司数据（日线）
+    - 🇺🇸 美股：部分美股数据支持（日线）
     
     **YFinance (全球市场/加密货币)**
-    - 🇺🇸 美股：纳斯达克、纽交所等
-    - 🇭🇰 港股：港交所数据（需加.HK后缀）
-    - 💎 加密货币：比特币、以太坊等数字资产
+    - 🇺🇸 美股：纳斯达克、纽交所等（日线）
+    - 🇭🇰 港股：港交所数据（日线，需加.HK后缀）
+    - 💎 加密货币：比特币、以太坊等数字资产（**支持1小时线**，最多730天）
+    
+    ### ⏰ 时间粒度支持
+    
+    - **日线 (1d)**：所有市场均支持，无时间限制
+    - **1小时线 (1h)**：仅加密货币支持，最多回溯730天（约2年）
     
     ### 🚀 开始使用
     

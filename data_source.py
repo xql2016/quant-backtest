@@ -61,7 +61,7 @@ class AKShareDataSource(DataSource):
         self.yf = None
     
     @st.cache_data(ttl=3600)
-    def fetch_data(_self, code: str, start_date: datetime.date, end_date: datetime.date, market: str = 'A股') -> Optional[pd.DataFrame]:
+    def fetch_data(_self, code: str, start_date: datetime.date, end_date: datetime.date, market: str = 'A股', **kwargs) -> Optional[pd.DataFrame]:
         """
         从AKShare获取股票数据
         
@@ -70,6 +70,7 @@ class AKShareDataSource(DataSource):
             start_date: 开始日期
             end_date: 结束日期
             market: 市场类型 ('A股', '港股', '美股')
+            **kwargs: 其他参数（AKShare不支持interval，会被忽略）
             
         Returns:
             标准化的DataFrame
@@ -193,7 +194,10 @@ class AKShareDataSource(DataSource):
         
         # 重置索引，将日期作为列
         df.reset_index(inplace=True)
-        df.rename(columns={'Date': 'date'}, inplace=True)
+        if 'Date' in df.columns:
+            df.rename(columns={'Date': 'date'}, inplace=True)
+        elif 'Datetime' in df.columns:
+            df.rename(columns={'Datetime': 'date'}, inplace=True)
         
         return self._standardize_dataframe(df)
     
@@ -281,9 +285,20 @@ class YFinanceDataSource(DataSource):
                 'Volume': 'volume'
             }, inplace=True)
             
-            # 重置索引
+            # 重置索引（处理不同的索引列名）
             df.reset_index(inplace=True)
-            df.rename(columns={'Date': 'date'}, inplace=True)
+            # YFinance对于不同interval返回不同的索引列名
+            # 日线：'Date'，小时线/分钟线：'Datetime'
+            if 'Date' in df.columns:
+                df.rename(columns={'Date': 'date'}, inplace=True)
+            elif 'Datetime' in df.columns:
+                df.rename(columns={'Datetime': 'date'}, inplace=True)
+            else:
+                # 如果都不存在，检查索引是否已经是DatetimeIndex
+                if isinstance(df.index, pd.DatetimeIndex):
+                    df['date'] = df.index
+                else:
+                    raise ValueError("无法找到日期/时间列")
             
             # 标准化DataFrame
             return self._standardize_dataframe(df)
@@ -488,11 +503,11 @@ def get_stock_data(code: str, start_date: datetime.date, end_date: datetime.date
         end_date: 结束日期
         market: 市场类型
         source_type: 数据源类型
-        **kwargs: 其他参数
+        **kwargs: 其他参数（如interval='1h'用于小时线数据）
         
     Returns:
         标准化的DataFrame
     """
-    data_source = DataSourceFactory.create_data_source(source_type, **kwargs)
-    return data_source.fetch_data(code, start_date, end_date, market=market)
+    data_source = DataSourceFactory.create_data_source(source_type)
+    return data_source.fetch_data(code, start_date, end_date, market=market, **kwargs)
 
