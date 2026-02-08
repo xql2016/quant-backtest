@@ -265,47 +265,113 @@ class YFinanceDataSource(DataSource):
             # 创建Ticker对象
             ticker = self.yf.Ticker(code)
             
-            # 获取历史数据
-            df = ticker.history(
-                start=start_date, 
-                end=end_date,
-                interval=interval
-            )
-            
-            if df.empty:
-                print(f"⚠️  未获取到{code}的数据，请检查代码是否正确")
-                return None
-            
-            # 标准化列名
-            df.rename(columns={
-                'Open': 'open',
-                'High': 'high', 
-                'Low': 'low',
-                'Close': 'close',
-                'Volume': 'volume'
-            }, inplace=True)
-            
-            # 重置索引（处理不同的索引列名）
-            df.reset_index(inplace=True)
-            # YFinance对于不同interval返回不同的索引列名
-            # 日线：'Date'，小时线/分钟线：'Datetime'
-            if 'Date' in df.columns:
-                df.rename(columns={'Date': 'date'}, inplace=True)
-            elif 'Datetime' in df.columns:
-                df.rename(columns={'Datetime': 'date'}, inplace=True)
+            # 处理4小时线：从1小时数据聚合而来
+            if interval == '4h':
+                # 获取1小时数据
+                df = ticker.history(
+                    start=start_date, 
+                    end=end_date,
+                    interval='1h'
+                )
+                
+                if df.empty:
+                    print(f"⚠️  未获取到{code}的数据，请检查代码是否正确")
+                    return None
+                
+                # 将1小时数据聚合成4小时
+                df_4h = self._resample_to_4h(df)
+                
+                if df_4h.empty:
+                    print(f"⚠️  4小时数据聚合失败")
+                    return None
+                
+                # 4小时数据已经是标准格式（索引是DatetimeIndex，列名已标准化）
+                # 重置索引，创建date列
+                df_4h.reset_index(inplace=True)
+                df_4h.rename(columns={df_4h.columns[0]: 'date'}, inplace=True)
+                
+                # 标准化DataFrame
+                return self._standardize_dataframe(df_4h)
             else:
-                # 如果都不存在，检查索引是否已经是DatetimeIndex
-                if isinstance(df.index, pd.DatetimeIndex):
-                    df['date'] = df.index
+                # 其他时间周期：直接获取
+                df = ticker.history(
+                    start=start_date, 
+                    end=end_date,
+                    interval=interval
+                )
+                
+                if df.empty:
+                    print(f"⚠️  未获取到{code}的数据，请检查代码是否正确")
+                    return None
+                
+                # 标准化列名
+                df.rename(columns={
+                    'Open': 'open',
+                    'High': 'high', 
+                    'Low': 'low',
+                    'Close': 'close',
+                    'Volume': 'volume'
+                }, inplace=True)
+                
+                # 重置索引（处理不同的索引列名）
+                df.reset_index(inplace=True)
+                # YFinance对于不同interval返回不同的索引列名
+                # 日线：'Date'，小时线/分钟线：'Datetime'
+                if 'Date' in df.columns:
+                    df.rename(columns={'Date': 'date'}, inplace=True)
+                elif 'Datetime' in df.columns:
+                    df.rename(columns={'Datetime': 'date'}, inplace=True)
                 else:
-                    raise ValueError("无法找到日期/时间列")
-            
-            # 标准化DataFrame
-            return self._standardize_dataframe(df)
+                    # 如果都不存在，检查索引是否已经是DatetimeIndex
+                    if isinstance(df.index, pd.DatetimeIndex):
+                        df['date'] = df.index
+                    else:
+                        raise ValueError("无法找到日期/时间列")
+                
+                # 标准化DataFrame
+                return self._standardize_dataframe(df)
             
         except Exception as e:
             print(f"❌ 数据获取失败: {e}")
             return None
+    
+    def _resample_to_4h(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        将1小时K线聚合成4小时K线
+        
+        Args:
+            df: 1小时K线数据（YFinance原始格式）
+            
+        Returns:
+            聚合后的4小时K线数据
+        """
+        # 确保索引是DatetimeIndex
+        if not isinstance(df.index, pd.DatetimeIndex):
+            df.index = pd.to_datetime(df.index)
+        
+        # 标准化列名（如果还没标准化）
+        df.rename(columns={
+            'Open': 'open',
+            'High': 'high', 
+            'Low': 'low',
+            'Close': 'close',
+            'Volume': 'volume'
+        }, inplace=True)
+        
+        # 聚合逻辑：每4个小时聚合一次
+        # 4小时边界：00:00, 04:00, 08:00, 12:00, 16:00, 20:00 (UTC)
+        df_4h = df.resample('4H').agg({
+            'open': 'first',    # 开盘价：取第一根1小时K线的开盘价
+            'high': 'max',      # 最高价：取4根1小时K线中的最高价
+            'low': 'min',       # 最低价：取4根1小时K线中的最低价
+            'close': 'last',    # 收盘价：取最后一根1小时K线的收盘价
+            'volume': 'sum'     # 成交量：4根1小时K线的成交量之和
+        })
+        
+        # 删除空行（如果某个4小时周期内没有数据）
+        df_4h = df_4h.dropna()
+        
+        return df_4h
     
     def _standardize_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         """标准化数据框格式"""

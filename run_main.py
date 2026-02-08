@@ -102,8 +102,8 @@ date_range = st.sidebar.date_input("回测区间", [default_start, default_end])
 if source_type == "yfinance" and market_type == "加密货币":
     time_interval = st.sidebar.selectbox(
         "⏰ 时间粒度",
-        ["日线 (1d)", "1小时线 (1h)"],
-        help="加密货币支持小时级数据，最多回溯约730天"
+        ["日线 (1d)", "4小时线 (4h)", "1小时线 (1h)"],
+        help="加密货币支持小时级数据，4小时线和1小时线最多回溯约730天"
     )
     # 提取实际的interval参数
     if "1h" in time_interval:
@@ -114,6 +114,14 @@ if source_type == "yfinance" and market_type == "加密货币":
             days_diff = (date_range[1] - date_range[0]).days
             if days_diff > max_days:
                 st.sidebar.warning(f"⚠️ 1小时线最多支持{max_days}天数据，建议缩短回测区间")
+    elif "4h" in time_interval:
+        interval = "4h"
+        # 4小时线最多支持730天（基于1小时数据聚合）
+        max_days = 730
+        if len(date_range) == 2:
+            days_diff = (date_range[1] - date_range[0]).days
+            if days_diff > max_days:
+                st.sidebar.warning(f"⚠️ 4小时线最多支持{max_days}天数据，建议缩短回测区间")
     else:
         interval = "1d"
 else:
@@ -235,7 +243,8 @@ if run_btn:
     
     # 显示数据源信息
     data_source_name = "AKShare" if source_type == "akshare" else "YFinance"
-    interval_name = "1小时线" if interval == "1h" else "日线"
+    interval_names = {"1h": "1小时线", "4h": "4小时线", "1d": "日线"}
+    interval_name = interval_names.get(interval, "日线")
     st.title(f"📊 量化回测报告：{market_flag} {stock_code}")
     st.caption(f"数据源：{data_source_name} | 市场：{market_type} | 时间粒度：{interval_name}")
     
@@ -412,11 +421,12 @@ else:
     **YFinance (全球市场/加密货币)**
     - 🇺🇸 美股：纳斯达克、纽交所等（日线）
     - 🇭🇰 港股：港交所数据（日线，需加.HK后缀）
-    - 💎 加密货币：比特币、以太坊等数字资产（**支持1小时线**，最多730天）
+    - 💎 加密货币：比特币、以太坊等数字资产（**支持4小时线、1小时线**，最多730天）
     
     ### ⏰ 时间粒度支持
     
     - **日线 (1d)**：所有市场均支持，无时间限制
+    - **4小时线 (4h)**：仅加密货币支持，最多回溯730天（约2年）⭐ **新增**
     - **1小时线 (1h)**：仅加密货币支持，最多回溯730天（约2年）
     
     ### 🚀 开始使用
