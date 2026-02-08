@@ -436,7 +436,7 @@ if run_btn:
         with st.expander("📋 查看详细交易日志"):
             if trade_log:
                 log_df = pd.DataFrame(trade_log)
-                st.dataframe(log_df, use_container_width=True)
+                st.dataframe(log_df, width='stretch')
             else:
                 st.info("该区间内未触发任何交易信号。")
 

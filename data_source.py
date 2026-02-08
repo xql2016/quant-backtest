@@ -112,28 +112,72 @@ class AKShareDataSource(DataSource):
         start_str = start_date.strftime("%Y%m%d")
         end_str = end_date.strftime("%Y%m%d")
         
-        df = self.ak.stock_zh_a_hist(
-            symbol=code, 
-            period="daily", 
-            start_date=start_str, 
-            end_date=end_str, 
-            adjust="qfq"
-        )
+        # 添加重试机制
+        max_retries = 3
+        retry_delay = 2  # 秒
         
-        if df.empty:
-            return None
+        for attempt in range(max_retries):
+            try:
+                df = self.ak.stock_zh_a_hist(
+                    symbol=code, 
+                    period="daily", 
+                    start_date=start_str, 
+                    end_date=end_str, 
+                    adjust="qfq"
+                )
+                
+                if df.empty:
+                    print(f"⚠️  股票代码 {code} 返回空数据")
+                    print(f"💡 可能原因：")
+                    print(f"   1. 股票代码不正确或已退市")
+                    print(f"   2. 日期范围内没有交易数据")
+                    print(f"   3. 尝试使用其他代码，如：000001（平安银行）、600519（贵州茅台）")
+                    return None
+                
+                # 标准化列名
+                df.rename(columns={
+                    '日期': 'date', 
+                    '收盘': 'close', 
+                    '最高': 'high', 
+                    '最低': 'low', 
+                    '开盘': 'open', 
+                    '成交量': 'volume'
+                }, inplace=True)
+                
+                return self._standardize_dataframe(df)
+                
+            except Exception as e:
+                error_msg = str(e)
+                
+                # 判断错误类型
+                if "RemoteDisconnected" in error_msg or "Connection" in error_msg:
+                    if attempt < max_retries - 1:
+                        print(f"⚠️  网络连接失败（尝试 {attempt + 1}/{max_retries}），{retry_delay}秒后重试...")
+                        import time
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        print(f"❌ AKShare 网络连接失败（已重试 {max_retries} 次）")
+                        print(f"💡 建议：")
+                        print(f"   1. 检查网络连接")
+                        print(f"   2. 切换到 Tushare 数据源（更稳定）")
+                        print(f"   3. 稍后再试")
+                        return None
+                elif "502" in error_msg or "Bad Gateway" in error_msg:
+                    print(f"❌ AKShare API 服务器错误（502 Bad Gateway）")
+                    print(f"💡 建议：切换到 Tushare 数据源")
+                    return None
+                else:
+                    # 其他错误
+                    print(f"❌ 数据获取失败: {e}")
+                    if attempt < max_retries - 1:
+                        print(f"   {retry_delay}秒后重试...")
+                        import time
+                        time.sleep(retry_delay)
+                        continue
+                    return None
         
-        # 标准化列名
-        df.rename(columns={
-            '日期': 'date', 
-            '收盘': 'close', 
-            '最高': 'high', 
-            '最低': 'low', 
-            '开盘': 'open', 
-            '成交量': 'volume'
-        }, inplace=True)
-        
-        return self._standardize_dataframe(df)
+        return None
     
     def _fetch_hk_stock(self, code: str, start_date: datetime.date, end_date: datetime.date) -> Optional[pd.DataFrame]:
         """获取港股数据"""
