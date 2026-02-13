@@ -69,61 +69,86 @@ market_type = st.sidebar.selectbox(
     help="选择要回测的市场类型"
 )
 
+# 回测模式选择
+st.sidebar.markdown("---")
+batch_mode = st.sidebar.radio(
+    "📋 回测模式",
+    ["单只股票", "批量回测"],
+    help="选择单只股票回测或批量回测多只股票"
+)
+
 # 根据数据源和市场类型显示不同的股票代码输入提示
-if source_type == "tushare":
-    # Tushare数据源
-    if market_type == "A股":
-        stock_code = st.sidebar.text_input(
-            "股票代码", 
-            value="000001", 
-            help="请输入6位A股代码，如 600519、000858"
-        )
-    elif market_type == "可转债":
-        stock_code = st.sidebar.text_input(
-            "可转债代码", 
-            value="127035", 
-            help="请输入6位可转债代码，如 128039(国光转债)、113050(南银转债)、127045(海亮转债)"
-        )
-elif source_type == "akshare":
-    # AKShare数据源
-    if market_type == "A股":
-        stock_code = st.sidebar.text_input(
-            "股票代码", 
-            value="000001", 
-            help="请输入6位A股代码，如 600519、000858"
-        )
-    elif market_type == "港股":
-        stock_code = st.sidebar.text_input(
-            "股票代码", 
-            value="00700", 
-            help="请输入5位港股代码，如 00700(腾讯)、09988(阿里)、01810(小米)"
-        )
-    elif market_type == "美股":
-        stock_code = st.sidebar.text_input(
-            "股票代码", 
-            value="AAPL", 
-            help="请输入美股代码，如 AAPL(苹果)、TSLA(特斯拉)、MSFT(微软)"
-        )
+if batch_mode == "单只股票":
+    if source_type == "tushare":
+        # Tushare数据源
+        if market_type == "A股":
+            stock_code = st.sidebar.text_input(
+                "股票代码", 
+                value="000001", 
+                help="请输入6位A股代码，如 600519、000858"
+            )
+        elif market_type == "可转债":
+            stock_code = st.sidebar.text_input(
+                "可转债代码", 
+                value="127035", 
+                help="请输入6位可转债代码，如 128039(国光转债)、113050(南银转债)、127045(海亮转债)"
+            )
+    elif source_type == "akshare":
+        # AKShare数据源
+        if market_type == "A股":
+            stock_code = st.sidebar.text_input(
+                "股票代码", 
+                value="000001", 
+                help="请输入6位A股代码，如 600519、000858"
+            )
+        elif market_type == "港股":
+            stock_code = st.sidebar.text_input(
+                "股票代码", 
+                value="00700", 
+                help="请输入5位港股代码，如 00700(腾讯)、09988(阿里)、01810(小米)"
+            )
+        elif market_type == "美股":
+            stock_code = st.sidebar.text_input(
+                "股票代码", 
+                value="AAPL", 
+                help="请输入美股代码，如 AAPL(苹果)、TSLA(特斯拉)、MSFT(微软)"
+            )
+    else:
+        # YFinance数据源
+        if market_type == "美股":
+            stock_code = st.sidebar.text_input(
+                "股票代码", 
+                value="AAPL", 
+                help="美股代码示例：AAPL(苹果)、TSLA(特斯拉)、MSFT(微软)、NVDA(英伟达)"
+            )
+        elif market_type == "港股":
+            stock_code = st.sidebar.text_input(
+                "股票代码", 
+                value="0700.HK", 
+                help="港股代码需加.HK后缀，如 0700.HK(腾讯)、9988.HK(阿里)、1810.HK(小米)"
+            )
+        elif market_type == "加密货币":
+            stock_code = st.sidebar.text_input(
+                "加密货币代码", 
+                value="BTC-USD", 
+                help="加密货币代码示例：BTC-USD(比特币)、ETH-USD(以太坊)、BNB-USD(币安币)"
+            )
+    stock_codes = [stock_code]  # 转换为列表格式统一处理
 else:
-    # YFinance数据源
-    if market_type == "美股":
-        stock_code = st.sidebar.text_input(
-            "股票代码", 
-            value="AAPL", 
-            help="美股代码示例：AAPL(苹果)、TSLA(特斯拉)、MSFT(微软)、NVDA(英伟达)"
-        )
-    elif market_type == "港股":
-        stock_code = st.sidebar.text_input(
-            "股票代码", 
-            value="0700.HK", 
-            help="港股代码需加.HK后缀，如 0700.HK(腾讯)、9988.HK(阿里)、1810.HK(小米)"
-        )
-    elif market_type == "加密货币":
-        stock_code = st.sidebar.text_input(
-            "加密货币代码", 
-            value="BTC-USD", 
-            help="加密货币代码示例：BTC-USD(比特币)、ETH-USD(以太坊)、BNB-USD(币安币)"
-        )
+    # 批量回测模式
+    stock_codes_input = st.sidebar.text_area(
+        "股票代码列表",
+        value="000001\n000002\n600519",
+        height=150,
+        help="每行输入一个股票代码，支持批量回测。示例：\n000001\n000002\n600519"
+    )
+    # 解析输入的代码列表
+    stock_codes = [code.strip() for code in stock_codes_input.split('\n') if code.strip()]
+    
+    if stock_codes:
+        st.sidebar.success(f"✅ 已输入 {len(stock_codes)} 只股票")
+    else:
+        st.sidebar.error("❌ 请输入至少一个股票代码")
 
 # 默认回测最近3年（需要先定义，供后续使用）
 default_start = datetime.date.today() - datetime.timedelta(days=365*3)
@@ -270,182 +295,357 @@ run_btn = st.sidebar.button("🚀 开始回测", type="primary")
 # 2. 核心逻辑处理
 # ===========================
 if run_btn:
-    market_flags = {"A股": "🇨🇳", "港股": "🇭🇰", "美股": "🇺🇸", "加密货币": "💎", "可转债": "📜"}
-    market_flag = market_flags.get(market_type, "")
-    
-    # 显示数据源信息
+    # 定义通用变量（批量和单股都需要）
     data_source_names = {"akshare": "AKShare", "yfinance": "YFinance", "tushare": "Tushare"}
     data_source_name = data_source_names.get(source_type, "未知")
+    market_flags = {"A股": "🇨🇳", "港股": "🇭🇰", "美股": "🇺🇸", "加密货币": "💎", "可转债": "📜"}
+    market_flag = market_flags.get(market_type, "")
     interval_names = {"1h": "1小时线", "4h": "4小时线", "1d": "日线"}
     interval_name = interval_names.get(interval, "日线")
-    st.title(f"📊 量化回测报告：{market_flag} {stock_code}")
-    st.caption(f"数据源：{data_source_name} | 市场：{market_type} | 时间粒度：{interval_name}")
     
-    with st.spinner(f'正在从 {data_source_name} 拉取数据并进行量化计算...'):
-        # 显示缓存信息
-        cache_info_placeholder = st.empty()
+    # 批量回测模式
+    if batch_mode == "批量回测" and len(stock_codes) > 1:
+        st.title("📊 批量回测报告")
+        st.caption(f"数据源：{data_source_name} | 市场：{market_type} | 策略：{selected_strategy}")
         
-        # 1. 获取数据（使用带缓存的数据源）
-        # 如果是YFinance且支持interval参数，则传入
-        if source_type == "yfinance":
-            df = get_cached_stock_data(stock_code, start_date, end_date, market=market_type, source_type=source_type, interval=interval, cache_enabled=True)
-        elif source_type == "tushare":
-            df = get_cached_stock_data(stock_code, start_date, end_date, market=market_type, source_type=source_type, token=tushare_token, cache_enabled=True)
-        else:
-            df = get_cached_stock_data(stock_code, start_date, end_date, market=market_type, source_type=source_type, cache_enabled=True)
+        # 创建结果容器
+        results = []
+        failed_codes = []
+        all_trades = []  # 存储所有交易记录
         
-        # 清除缓存信息占位符
-        cache_info_placeholder.empty()
+        # 进度条
+        progress_bar = st.progress(0)
+        status_text = st.empty()
         
-        if df is None or df.empty:
-            st.error(f"❌ 无法获取代码 {stock_code} 的数据，请检查代码是否正确，或该股在区间内已退市。")
-            st.stop()
-
-        # 2. 创建策略和回测引擎
-        try:
-            strategy = StrategyFactory.create_strategy(selected_strategy, params)
+        # 逐个股票回测
+        for idx, stock_code in enumerate(stock_codes):
+            try:
+                status_text.text(f"正在回测 {stock_code} ({idx+1}/{len(stock_codes)})...")
+                
+                # 获取数据
+                if source_type == "yfinance":
+                    df = get_cached_stock_data(stock_code, start_date, end_date, market=market_type, source_type=source_type, interval=interval, cache_enabled=True)
+                elif source_type == "tushare":
+                    df = get_cached_stock_data(stock_code, start_date, end_date, market=market_type, source_type=source_type, token=tushare_token, cache_enabled=True)
+                else:
+                    df = get_cached_stock_data(stock_code, start_date, end_date, market=market_type, source_type=source_type, cache_enabled=True)
+                
+                if df is None or df.empty:
+                    failed_codes.append((stock_code, "无法获取数据"))
+                    continue
+                
+                # 执行回测
+                strategy = StrategyFactory.create_strategy(selected_strategy, params)
+                engine = BacktestEngine(
+                    initial_cash=initial_cash, 
+                    buy_commission=buy_commission,
+                    sell_commission=sell_commission,
+                    allow_fractional=True,
+                    min_trade_value=0
+                )
+                result = engine.run(df, strategy)
+                
+                # 记录结果
+                results.append({
+                    'code': stock_code,
+                    'total_return': result.total_return,
+                    'benchmark_return': result.benchmark_return,
+                    'win_rate': result.win_rate,
+                    'total_trades': result.total_trades,
+                    'final_equity': result.df['equity'].iloc[-1],
+                    'max_drawdown': result.max_drawdown if hasattr(result, 'max_drawdown') else 0,
+                    'sharpe_ratio': result.sharpe_ratio if hasattr(result, 'sharpe_ratio') else 0
+                })
+                
+                # 收集交易记录
+                if result.trade_log:
+                    for trade in result.trade_log:
+                        trade_record = trade.copy()
+                        trade_record['股票代码'] = stock_code
+                        all_trades.append(trade_record)
+                
+            except Exception as e:
+                failed_codes.append((stock_code, str(e)))
             
-            # 创建回测引擎（支持小数股交易，最大化资金利用率）
-            engine = BacktestEngine(
-                initial_cash=initial_cash, 
-                buy_commission=buy_commission,    # 买入手续费率
-                sell_commission=sell_commission,  # 卖出手续费率
-                allow_fractional=True,            # 允许小数股交易
-                min_trade_value=0                 # 无最小交易金额限制
+            # 更新进度
+            progress_bar.progress((idx + 1) / len(stock_codes))
+        
+        status_text.empty()
+        progress_bar.empty()
+        
+        # 显示结果
+        if results:
+            st.success(f"✅ 成功回测 {len(results)} 只股票")
+            
+            # 创建结果DataFrame
+            import pandas as pd
+            results_df = pd.DataFrame(results)
+            
+            # 添加超额收益列
+            results_df['excess_return'] = results_df['total_return'] - results_df['benchmark_return']
+            
+            # 排序（按策略收益率降序）
+            results_df = results_df.sort_values('total_return', ascending=False)
+            
+            # 汇总统计
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("平均收益率", f"{results_df['total_return'].mean()*100:.2f}%")
+            col2.metric("最佳收益", f"{results_df['total_return'].max()*100:.2f}%")
+            col3.metric("最差收益", f"{results_df['total_return'].min()*100:.2f}%")
+            col4.metric("胜率中位数", f"{results_df['win_rate'].median()*100:.1f}%")
+            
+            # 详细结果表格
+            st.subheader("📋 详细结果")
+            
+            # 格式化显示
+            display_df = results_df.copy()
+            display_df['策略收益率'] = display_df['total_return'].apply(lambda x: f"{x*100:.2f}%")
+            display_df['基准收益率'] = display_df['benchmark_return'].apply(lambda x: f"{x*100:.2f}%")
+            display_df['超额收益'] = display_df['excess_return'].apply(lambda x: f"{x*100:.2f}%")
+            display_df['胜率'] = display_df['win_rate'].apply(lambda x: f"{x*100:.1f}%")
+            display_df['最终资产'] = display_df['final_equity'].apply(lambda x: f"{x:,.0f}")
+            
+            # 选择要显示的列
+            st.dataframe(
+                display_df[['code', '策略收益率', '基准收益率', '超额收益', '胜率', 'total_trades', '最终资产']].rename(columns={
+                    'code': '股票代码',
+                    'total_trades': '交易次数'
+                }),
+                use_container_width=True,
+                height=400
             )
             
-            # 3. 运行回测
-            result = engine.run(df, strategy)
+            # 下载按钮（使用列布局，避免刷新）
+            col_download1, col_download2 = st.columns(2)
             
-            # 将结果赋值给df和trade_log，以便后续绘图使用
-            df = result.df
-            trade_log = result.trade_log
-            total_ret = result.total_return
-            bench_ret = result.benchmark_return
-            win_rate = result.win_rate
-            sell_count = result.total_trades
+            with col_download1:
+                # 下载汇总结果
+                csv_summary = results_df.to_csv(index=False, encoding='utf-8-sig')
+                st.download_button(
+                    label="📥 下载汇总结果 (CSV)",
+                    data=csv_summary,
+                    file_name=f"批量回测汇总_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    key="download_summary"
+                )
             
-            # 记录开始价格（用于波段策略绘图）
-            start_price = df['close'].iloc[0]
+            with col_download2:
+                # 下载详细交易记录
+                if all_trades:
+                    trades_df = pd.DataFrame(all_trades)
+                    # 调整列顺序，将股票代码放在最前面
+                    cols = ['股票代码'] + [col for col in trades_df.columns if col != '股票代码']
+                    trades_df = trades_df[cols]
+                    
+                    csv_trades = trades_df.to_csv(index=False, encoding='utf-8-sig')
+                    st.download_button(
+                        label="📥 下载交易记录 (CSV)",
+                        data=csv_trades,
+                        file_name=f"批量回测交易记录_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv",
+                        key="download_trades"
+                    )
+                else:
+                    st.info("📋 无交易记录")
             
-        except Exception as e:
-            st.error(f"❌ 回测过程中出现错误: {e}")
-            st.stop()
+            # 显示交易记录预览
+            if all_trades:
+                st.subheader("📋 交易记录预览")
+                st.caption(f"共 {len(all_trades)} 笔交易，下载CSV查看完整记录")
+                
+                trades_df = pd.DataFrame(all_trades)
+                cols = ['股票代码'] + [col for col in trades_df.columns if col != '股票代码']
+                trades_df = trades_df[cols]
+                
+                # 只显示前20条
+                st.dataframe(
+                    trades_df.head(20),
+                    use_container_width=True,
+                    height=300
+                )
+                
+                if len(all_trades) > 20:
+                    st.info(f"💡 仅显示前20条记录，完整的 {len(all_trades)} 笔交易请下载CSV查看")
         
-
-        # ===========================
-        # 3. 仪表盘展示
-        # ===========================
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("最终资产", f"{df['equity'].iloc[-1]:,.0f}", delta=f"{total_ret*100:.2f}%")
-        col2.metric("基准收益", f"{bench_ret*100:.2f}%", delta_color="off")
-        col3.metric("交易次数", f"{sell_count}", help="指完成买卖闭环的次数")
-        col4.metric("策略胜率", f"{win_rate*100:.1f}%")
-
-        # --- 图表区 ---
-        st.subheader("📈 资金曲线与技术指标")
+        # 显示失败的股票
+        if failed_codes:
+            st.warning(f"⚠️ {len(failed_codes)} 只股票回测失败")
+            with st.expander("查看失败详情"):
+                for code, reason in failed_codes:
+                    st.text(f"❌ {code}: {reason}")
+    
+    # 单只股票回测模式
+    else:
+        stock_code = stock_codes[0]  # 取第一个（唯一的）代码
         
-        # 根据策略类型决定子图数量
-        if selected_strategy == "多重底入场策略":
-            fig = plt.figure(figsize=(12, 14))
-            # 主图：股价 + 买卖点
-            ax1 = fig.add_subplot(311)
-        else:
-            fig = plt.figure(figsize=(12, 10))
-            # 主图：股价 + 买卖点
-            ax1 = fig.add_subplot(211)
+        st.title(f"📊 量化回测报告：{market_flag} {stock_code}")
+        st.caption(f"数据源：{data_source_name} | 市场：{market_type} | 时间粒度：{interval_name}")
         
-        ax1.plot(df.index, df['close'], label='收盘价', color='#333', alpha=0.6)
-        
-        # 如果有布林带，画轨道
-        if selected_strategy == "布林带突破":
-            ax1.plot(df.index, df['upper'], color='green', linestyle='--', alpha=0.3, label='上轨')
-            ax1.plot(df.index, df['lower'], color='red', linestyle='--', alpha=0.3, label='下轨')
-            ax1.fill_between(df.index, df['upper'], df['lower'], color='gray', alpha=0.1)
-        # 如果是均线策略，画均线
-        elif selected_strategy == "双均线策略(SMA)":
-            ax1.plot(df.index, df['sma_short'], color='#ff7f0e', alpha=0.6, label='短期均线')
-            ax1.plot(df.index, df['sma_long'], color='#1f77b4', alpha=0.6, label='长期均线')
-        # 如果是波段策略，画多条均线和参考线
-        elif selected_strategy == "波段策略":
-            # 画三条MA线
-            ax1.plot(df.index, df['first_profit_ma'], color='#ff7f0e', alpha=0.5, linewidth=1.5, 
-                    label=f'首次止盈MA{params["first_profit_ma"]}', linestyle='-')
-            ax1.plot(df.index, df['reentry_ma'], color='#2ca02c', alpha=0.5, linewidth=1.5, 
-                    label=f'后续入场MA{params["reentry_ma"]}', linestyle='--')
-            ax1.plot(df.index, df['subsequent_profit_ma'], color='#d62728', alpha=0.5, linewidth=1.5, 
-                    label=f'后续止盈MA{params["subsequent_profit_ma"]}', linestyle='-.')
-            # 首波段参考线
-            ax1.axhline(y=start_price, color='blue', linestyle='--', alpha=0.3, label='首波段价格')
-            ax1.axhline(y=start_price * (1 - params['first_add_drop']/100), color='orange', 
-                       linestyle=':', alpha=0.3, label=f'首次加仓(-{params["first_add_drop"]}%)')
-            ax1.axhline(y=start_price * (1 + params['first_profit_target']/100), color='green', 
-                       linestyle=':', alpha=0.3, label=f'首次止盈(+{params["first_profit_target"]}%)')
-        # 如果是多重底策略，显示MACD低点
-        elif selected_strategy == "多重底入场策略":
-            # 标记MACD低点
-            macd_troughs = df[df['is_macd_trough'] == True]
-            if len(macd_troughs) > 0:
-                ax1.scatter(macd_troughs.index, macd_troughs['close'], 
-                           marker='o', c='purple', s=50, alpha=0.5, label='MACD低点', zorder=4)
-
-        # 标记买卖点
-        buys = df[df['signal'] == 1]
-        sells = df[df['signal'] == -1]
-        ax1.scatter(buys.index, buys['close'], marker='^', c='r', s=80, label='买入', zorder=5)
-        ax1.scatter(sells.index, sells['close'], marker='v', c='g', s=80, label='卖出', zorder=5)
-        ax1.legend(loc='upper left')
-        ax1.set_title(f"{stock_code} 价格走势与交易信号")
-        ax1.grid(True, alpha=0.2)
-
-        # 根据策略显示不同的副图
-        if selected_strategy == "多重底入场策略":
-            # MACD图
-            ax2 = fig.add_subplot(312, sharex=ax1)
-            # 绘制MACD柱状图
-            colors = ['red' if x < 0 else 'green' for x in df['macd_hist']]
-            ax2.bar(df.index, df['macd_hist'], color=colors, alpha=0.6, width=1, label='MACD柱')
-            ax2.plot(df.index, df['dif'], label='DIF', color='blue', linewidth=1, alpha=0.7)
-            ax2.plot(df.index, df['dea'], label='DEA', color='orange', linewidth=1, alpha=0.7)
-            ax2.axhline(y=0, color='black', linestyle='-', linewidth=0.5, alpha=0.3)
-            ax2.axhline(y=params['zero_threshold'], color='purple', linestyle='--', linewidth=0.5, alpha=0.3, label='0轴阈值')
-            ax2.axhline(y=-params['zero_threshold'], color='purple', linestyle='--', linewidth=0.5, alpha=0.3)
-            # 标记MACD低点
-            macd_troughs = df[df['is_macd_trough'] == True]
-            if len(macd_troughs) > 0:
-                ax2.scatter(macd_troughs.index, macd_troughs['macd_hist'], 
-                           marker='o', c='purple', s=60, label='MACD低点', zorder=5)
-            ax2.legend(loc='upper left', fontsize=8)
-            ax2.set_title("MACD指标与底背离")
-            ax2.grid(True, alpha=0.2)
+        with st.spinner(f'正在从 {data_source_name} 拉取数据并进行量化计算...'):
+            # 显示缓存信息
+            cache_info_placeholder = st.empty()
             
-            # 资金曲线
-            ax3 = fig.add_subplot(313, sharex=ax1)
-            ax3.plot(df.index, df['equity'], label='策略净值', color='#d62728', linewidth=2)
-            ax3.plot(df.index, df['benchmark'], label='基准净值 (买入持有)', color='#7f7f7f', linestyle='--', alpha=0.8)
-            ax3.fill_between(df.index, df['equity'], initial_cash, where=(df['equity']>=initial_cash), facecolor='#d62728', alpha=0.1)
-            ax3.legend(loc='upper left')
-            ax3.set_title("策略资金 vs 基准对比")
-            ax3.grid(True, alpha=0.2)
-        else:
-            # 其他策略：资金曲线 vs 基准
-            ax2 = fig.add_subplot(212, sharex=ax1)
-            ax2.plot(df.index, df['equity'], label='策略净值', color='#d62728', linewidth=2)
-            ax2.plot(df.index, df['benchmark'], label='基准净值 (买入持有)', color='#7f7f7f', linestyle='--', alpha=0.8)
-            ax2.fill_between(df.index, df['equity'], initial_cash, where=(df['equity']>=initial_cash), facecolor='#d62728', alpha=0.1)
-            ax2.legend(loc='upper left')
-            ax2.set_title("策略资金 vs 基准对比")
-            ax2.grid(True, alpha=0.2)
-        
-        st.pyplot(fig)
-
-        # --- 交易日志 ---
-        with st.expander("📋 查看详细交易日志"):
-            if trade_log:
-                log_df = pd.DataFrame(trade_log)
-                st.dataframe(log_df, width='stretch')
+            # 1. 获取数据（使用带缓存的数据源）
+            # 如果是YFinance且支持interval参数，则传入
+            if source_type == "yfinance":
+                df = get_cached_stock_data(stock_code, start_date, end_date, market=market_type, source_type=source_type, interval=interval, cache_enabled=True)
+            elif source_type == "tushare":
+                df = get_cached_stock_data(stock_code, start_date, end_date, market=market_type, source_type=source_type, token=tushare_token, cache_enabled=True)
             else:
-                st.info("该区间内未触发任何交易信号。")
+                df = get_cached_stock_data(stock_code, start_date, end_date, market=market_type, source_type=source_type, cache_enabled=True)
+            
+            # 清除缓存信息占位符
+            cache_info_placeholder.empty()
+            
+            if df is None or df.empty:
+                st.error(f"❌ 无法获取代码 {stock_code} 的数据，请检查代码是否正确，或该股在区间内已退市。")
+                st.stop()
+
+            # 2. 创建策略和回测引擎
+            try:
+                strategy = StrategyFactory.create_strategy(selected_strategy, params)
+            
+                # 创建回测引擎（支持小数股交易，最大化资金利用率）
+                engine = BacktestEngine(
+                    initial_cash=initial_cash, 
+                    buy_commission=buy_commission,    # 买入手续费率
+                    sell_commission=sell_commission,  # 卖出手续费率
+                    allow_fractional=True,            # 允许小数股交易
+                    min_trade_value=0                 # 无最小交易金额限制
+                )
+            
+                # 3. 运行回测
+                result = engine.run(df, strategy)
+            
+                # 将结果赋值给df和trade_log，以便后续绘图使用
+                df = result.df
+                trade_log = result.trade_log
+                total_ret = result.total_return
+                bench_ret = result.benchmark_return
+                win_rate = result.win_rate
+                sell_count = result.total_trades
+            
+                # 记录开始价格（用于波段策略绘图）
+                start_price = df['close'].iloc[0]
+            
+            except Exception as e:
+                st.error(f"❌ 回测过程中出现错误: {e}")
+                st.stop()
+        
+
+            # ===========================
+            # 3. 仪表盘展示
+            # ===========================
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("最终资产", f"{df['equity'].iloc[-1]:,.0f}", delta=f"{total_ret*100:.2f}%")
+            col2.metric("基准收益", f"{bench_ret*100:.2f}%", delta_color="off")
+            col3.metric("交易次数", f"{sell_count}", help="指完成买卖闭环的次数")
+            col4.metric("策略胜率", f"{win_rate*100:.1f}%")
+
+            # --- 图表区 ---
+            st.subheader("📈 资金曲线与技术指标")
+        
+            # 根据策略类型决定子图数量
+            if selected_strategy == "多重底入场策略":
+                fig = plt.figure(figsize=(12, 14))
+                # 主图：股价 + 买卖点
+                ax1 = fig.add_subplot(311)
+            else:
+                fig = plt.figure(figsize=(12, 10))
+                # 主图：股价 + 买卖点
+                ax1 = fig.add_subplot(211)
+        
+            ax1.plot(df.index, df['close'], label='收盘价', color='#333', alpha=0.6)
+        
+            # 如果有布林带，画轨道
+            if selected_strategy == "布林带突破":
+                ax1.plot(df.index, df['upper'], color='green', linestyle='--', alpha=0.3, label='上轨')
+                ax1.plot(df.index, df['lower'], color='red', linestyle='--', alpha=0.3, label='下轨')
+                ax1.fill_between(df.index, df['upper'], df['lower'], color='gray', alpha=0.1)
+            # 如果是均线策略，画均线
+            elif selected_strategy == "双均线策略(SMA)":
+                ax1.plot(df.index, df['sma_short'], color='#ff7f0e', alpha=0.6, label='短期均线')
+                ax1.plot(df.index, df['sma_long'], color='#1f77b4', alpha=0.6, label='长期均线')
+            # 如果是波段策略，画多条均线和参考线
+            elif selected_strategy == "波段策略":
+                # 画三条MA线
+                ax1.plot(df.index, df['first_profit_ma'], color='#ff7f0e', alpha=0.5, linewidth=1.5, 
+                        label=f'首次止盈MA{params["first_profit_ma"]}', linestyle='-')
+                ax1.plot(df.index, df['reentry_ma'], color='#2ca02c', alpha=0.5, linewidth=1.5, 
+                        label=f'后续入场MA{params["reentry_ma"]}', linestyle='--')
+                ax1.plot(df.index, df['subsequent_profit_ma'], color='#d62728', alpha=0.5, linewidth=1.5, 
+                        label=f'后续止盈MA{params["subsequent_profit_ma"]}', linestyle='-.')
+                # 首波段参考线
+                ax1.axhline(y=start_price, color='blue', linestyle='--', alpha=0.3, label='首波段价格')
+                ax1.axhline(y=start_price * (1 - params['first_add_drop']/100), color='orange', 
+                           linestyle=':', alpha=0.3, label=f'首次加仓(-{params["first_add_drop"]}%)')
+                ax1.axhline(y=start_price * (1 + params['first_profit_target']/100), color='green', 
+                           linestyle=':', alpha=0.3, label=f'首次止盈(+{params["first_profit_target"]}%)')
+            # 如果是多重底策略，显示MACD低点
+            elif selected_strategy == "多重底入场策略":
+                # 标记MACD低点
+                macd_troughs = df[df['is_macd_trough'] == True]
+                if len(macd_troughs) > 0:
+                    ax1.scatter(macd_troughs.index, macd_troughs['close'], 
+                               marker='o', c='purple', s=50, alpha=0.5, label='MACD低点', zorder=4)
+
+            # 标记买卖点
+            buys = df[df['signal'] == 1]
+            sells = df[df['signal'] == -1]
+            ax1.scatter(buys.index, buys['close'], marker='^', c='r', s=80, label='买入', zorder=5)
+            ax1.scatter(sells.index, sells['close'], marker='v', c='g', s=80, label='卖出', zorder=5)
+            ax1.legend(loc='upper left')
+            ax1.set_title(f"{stock_code} 价格走势与交易信号")
+            ax1.grid(True, alpha=0.2)
+
+            # 根据策略显示不同的副图
+            if selected_strategy == "多重底入场策略":
+                # MACD图
+                ax2 = fig.add_subplot(312, sharex=ax1)
+                # 绘制MACD柱状图
+                colors = ['red' if x < 0 else 'green' for x in df['macd_hist']]
+                ax2.bar(df.index, df['macd_hist'], color=colors, alpha=0.6, width=1, label='MACD柱')
+                ax2.plot(df.index, df['dif'], label='DIF', color='blue', linewidth=1, alpha=0.7)
+                ax2.plot(df.index, df['dea'], label='DEA', color='orange', linewidth=1, alpha=0.7)
+                ax2.axhline(y=0, color='black', linestyle='-', linewidth=0.5, alpha=0.3)
+                ax2.axhline(y=params['zero_threshold'], color='purple', linestyle='--', linewidth=0.5, alpha=0.3, label='0轴阈值')
+                ax2.axhline(y=-params['zero_threshold'], color='purple', linestyle='--', linewidth=0.5, alpha=0.3)
+                # 标记MACD低点
+                macd_troughs = df[df['is_macd_trough'] == True]
+                if len(macd_troughs) > 0:
+                    ax2.scatter(macd_troughs.index, macd_troughs['macd_hist'], 
+                               marker='o', c='purple', s=60, label='MACD低点', zorder=5)
+                ax2.legend(loc='upper left', fontsize=8)
+                ax2.set_title("MACD指标与底背离")
+                ax2.grid(True, alpha=0.2)
+            
+                # 资金曲线
+                ax3 = fig.add_subplot(313, sharex=ax1)
+                ax3.plot(df.index, df['equity'], label='策略净值', color='#d62728', linewidth=2)
+                ax3.plot(df.index, df['benchmark'], label='基准净值 (买入持有)', color='#7f7f7f', linestyle='--', alpha=0.8)
+                ax3.fill_between(df.index, df['equity'], initial_cash, where=(df['equity']>=initial_cash), facecolor='#d62728', alpha=0.1)
+                ax3.legend(loc='upper left')
+                ax3.set_title("策略资金 vs 基准对比")
+                ax3.grid(True, alpha=0.2)
+            else:
+                # 其他策略：资金曲线 vs 基准
+                ax2 = fig.add_subplot(212, sharex=ax1)
+                ax2.plot(df.index, df['equity'], label='策略净值', color='#d62728', linewidth=2)
+                ax2.plot(df.index, df['benchmark'], label='基准净值 (买入持有)', color='#7f7f7f', linestyle='--', alpha=0.8)
+                ax2.fill_between(df.index, df['equity'], initial_cash, where=(df['equity']>=initial_cash), facecolor='#d62728', alpha=0.1)
+                ax2.legend(loc='upper left')
+                ax2.set_title("策略资金 vs 基准对比")
+                ax2.grid(True, alpha=0.2)
+        
+            st.pyplot(fig)
+
+            # --- 交易日志 ---
+            with st.expander("📋 查看详细交易日志"):
+                if trade_log:
+                    log_df = pd.DataFrame(trade_log)
+                    st.dataframe(log_df, width='stretch')
+                else:
+                    st.info("该区间内未触发任何交易信号。")
 
 else:
     # 欢迎页
