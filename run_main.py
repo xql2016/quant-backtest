@@ -14,6 +14,7 @@ except ImportError:
 
 # 导入自定义模块
 from data_source import get_stock_data
+from cached_data_source import get_cached_stock_data  # 带缓存的数据获取
 from strategy_backtest import StrategyFactory, BacktestEngine
 
 # ===========================
@@ -281,14 +282,20 @@ if run_btn:
     st.caption(f"数据源：{data_source_name} | 市场：{market_type} | 时间粒度：{interval_name}")
     
     with st.spinner(f'正在从 {data_source_name} 拉取数据并进行量化计算...'):
-        # 1. 获取数据（使用用户选择的数据源）
+        # 显示缓存信息
+        cache_info_placeholder = st.empty()
+        
+        # 1. 获取数据（使用带缓存的数据源）
         # 如果是YFinance且支持interval参数，则传入
         if source_type == "yfinance":
-            df = get_stock_data(stock_code, start_date, end_date, market=market_type, source_type=source_type, interval=interval)
+            df = get_cached_stock_data(stock_code, start_date, end_date, market=market_type, source_type=source_type, interval=interval, cache_enabled=True)
         elif source_type == "tushare":
-            df = get_stock_data(stock_code, start_date, end_date, market=market_type, source_type=source_type, token=tushare_token)
+            df = get_cached_stock_data(stock_code, start_date, end_date, market=market_type, source_type=source_type, token=tushare_token, cache_enabled=True)
         else:
-            df = get_stock_data(stock_code, start_date, end_date, market=market_type, source_type=source_type)
+            df = get_cached_stock_data(stock_code, start_date, end_date, market=market_type, source_type=source_type, cache_enabled=True)
+        
+        # 清除缓存信息占位符
+        cache_info_placeholder.empty()
         
         if df is None or df.empty:
             st.error(f"❌ 无法获取代码 {stock_code} 的数据，请检查代码是否正确，或该股在区间内已退市。")
@@ -490,3 +497,36 @@ else:
     """)
     
     st.success("💡 提示：不同数据源有不同的代码格式，请根据界面提示输入正确的代码！")
+
+# ===========================
+# 侧边栏：缓存管理
+# ===========================
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 📦 数据缓存")
+
+# 显示缓存统计
+try:
+    from cache_manager import CacheManager
+    cache_manager = CacheManager()
+    stats = cache_manager.get_statistics()
+    
+    st.sidebar.info(f"""
+    💾 **缓存统计**  
+    缓存数: {stats['total_entries']} 个  
+    大小: {stats['total_size_mb']:.1f} MB
+    """)
+    
+    col1, col2 = st.sidebar.columns(2)
+    with col1:
+        if st.button("🧹 清理", help="清理过期缓存"):
+            cache_manager.cleanup_cache()
+            st.success("✅ 完成")
+            st.rerun()
+    with col2:
+        if st.button("🗑️ 清空", help="清空所有缓存"):
+            cache_manager.clear_all_cache()
+            st.success("✅ 完成")
+            st.rerun()
+except Exception as e:
+    st.sidebar.caption("💾 缓存功能：启用")
+    st.sidebar.caption("💡 数据会自动缓存")

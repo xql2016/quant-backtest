@@ -63,3 +63,12 @@ dist/
 # 但保留配置文件
 !build_spec.spec
 
+# Cache files (缓存文件)
+cache/data/
+cache/logs/
+cache/metadata/cache_index.json
+
+# 保留配置文件
+!cache/config.json
+!cache/metadata/.gitkeep
+

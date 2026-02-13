@@ -1,0 +1,33 @@
+{
+  "cache_settings": {
+    "enabled": true,
+    "max_size_mb": 1024,
+    "default_ttl_hours": 168,
+    "clean_on_startup": false,
+    "compression_level": "default"
+  },
+  "ttl_rules": {
+    "historical_data_ttl": -1,
+    "recent_data_days": 7,
+    "recent_data_ttl_hours": 168,
+    "realtime_data_ttl_minutes": 60,
+    "crypto_ttl_minutes": 30
+  },
+  "cleanup_policy": {
+    "strategy": "hybrid",
+    "unused_days_threshold": 30,
+    "min_access_count": 3,
+    "auto_cleanup_interval_hours": 24
+  },
+  "storage_format": {
+    "format": "parquet",
+    "compression": "snappy",
+    "fallback_format": "csv"
+  },
+  "logging": {
+    "enabled": true,
+    "log_level": "INFO",
+    "log_access": true,
+    "log_file": "cache/logs/cache_access.log"
+  }
+}

@@ -13,5 +13,8 @@ akshare
 yfinance
 tushare
 
+# 缓存支持
+pyarrow  # 用于Parquet格式缓存
+
 # 可选：其他数据源（按需安装）
 # sqlalchemy
