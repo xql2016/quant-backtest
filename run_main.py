@@ -515,18 +515,6 @@ try:
     缓存数: {stats['total_entries']} 个  
     大小: {stats['total_size_mb']:.1f} MB
     """)
-    
-    col1, col2 = st.sidebar.columns(2)
-    with col1:
-        if st.button("🧹 清理", help="清理过期缓存"):
-            cache_manager.cleanup_cache()
-            st.success("✅ 完成")
-            st.rerun()
-    with col2:
-        if st.button("🗑️ 清空", help="清空所有缓存"):
-            cache_manager.clear_all_cache()
-            st.success("✅ 完成")
-            st.rerun()
 except Exception as e:
     st.sidebar.caption("💾 缓存功能：启用")
     st.sidebar.caption("💡 数据会自动缓存")
