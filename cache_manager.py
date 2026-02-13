@@ -158,7 +158,7 @@ class CacheManager:
                   end_date: date,
                   interval: str = '1d') -> bool:
         """
-        保存数据到缓存
+        保存数据到缓存（带智能检查，避免重复缓存）
         
         Args:
             data: 要缓存的DataFrame
@@ -182,6 +182,27 @@ class CacheManager:
         try:
             # 生成缓存键
             cache_key = self._generate_cache_key(data_source, market, code, start_date, end_date, interval)
+            
+            # 🆕 检查是否已有能覆盖此范围的更大缓存
+            # 提取查询的基本信息
+            all_entries = self.index.get_all_entries()
+            for existing_key, existing_entry in all_entries.items():
+                # 检查是否是同一个资产
+                if (existing_entry.get('data_source') == data_source and
+                    existing_entry.get('market') == market and
+                    existing_entry.get('code') == code and
+                    existing_entry.get('interval') == interval):
+                    
+                    # 检查现有缓存的日期范围
+                    existing_start = datetime.strptime(existing_entry['start_date'], '%Y-%m-%d').date()
+                    existing_end = datetime.strptime(existing_entry['end_date'], '%Y-%m-%d').date()
+                    
+                    # 如果现有缓存完全覆盖要保存的范围
+                    if existing_start <= start_date and existing_end >= end_date:
+                        # 检查是否过期
+                        if not self.policy.is_expired(existing_entry):
+                            self.logger.info(f"⏭️  跳过保存: 已有更大范围的缓存 ({existing_key}) 覆盖此查询")
+                            return True  # 返回True表示不需要保存（已有缓存）
             
             # 保存数据文件
             file_path = self.storage.save(data, data_source, market, code, start_date, end_date, interval)
@@ -233,7 +254,7 @@ class CacheManager:
     
     def _query_cache(self, cache_key: str, start_date: date, end_date: date) -> dict:
         """
-        查询缓存
+        查询缓存（支持智能日期范围匹配）
         
         Returns:
             {
@@ -242,48 +263,101 @@ class CacheManager:
                 'caches': List of matching cache entries
             }
         """
-        # 先尝试精确匹配
+        # 1. 先尝试精确匹配（最快）
         if self.index.has_entry(cache_key):
             entry = self.index.get_entry(cache_key)
-            
-            # 检查是否过期
-            if self.policy.is_expired(entry):
-                self.logger.info(f"缓存已过期: {cache_key}")
-                return {'status': 'no_match', 'data': None, 'caches': []}
-            
-            # 检查文件是否存在
-            file_path = Path(entry['file_path'])
-            if not file_path.exists():
-                self.logger.warning(f"缓存文件不存在: {file_path}")
-                self.index.remove_entry(cache_key)
-                return {'status': 'no_match', 'data': None, 'caches': []}
-            
-            # 读取数据
-            data = self.storage.load(file_path)
-            if data is None:
-                self.logger.error(f"读取缓存文件失败: {file_path}")
-                return {'status': 'no_match', 'data': None, 'caches': []}
-            
-            # 检查日期范围是否完全包含查询范围
-            cache_start = datetime.strptime(entry['start_date'], '%Y-%m-%d').date()
-            cache_end = datetime.strptime(entry['end_date'], '%Y-%m-%d').date()
-            
-            if cache_start <= start_date and cache_end >= end_date:
-                # 完全匹配，过滤数据
-                filtered_data = data[(data.index.date >= start_date) & (data.index.date <= end_date)]
-                
-                # 更新访问记录
-                self.index.update_access(cache_key)
-                
-                return {
-                    'status': 'full_match',
-                    'data': filtered_data,
-                    'caches': [entry]
-                }
+            result = self._check_and_load_cache(entry, cache_key, start_date, end_date)
+            if result['status'] == 'full_match':
+                return result
         
-        # TODO: 实现部分匹配逻辑（多缓存合并）
-        # 目前简化为只支持完全匹配
+        # 2. 精确匹配失败，尝试查找能覆盖查询范围的更大缓存
+        # 提取查询的基本信息（数据源、市场、代码、时间粒度）
+        key_parts = cache_key.split('_')
+        if len(key_parts) >= 6:
+            data_source = key_parts[0]
+            market = key_parts[1]
+            code = key_parts[2]
+            # key_parts[3] = start_date, key_parts[4] = end_date
+            interval = key_parts[5] if len(key_parts) > 5 else '1d'
+            
+            # 遍历所有缓存，查找能覆盖查询范围的缓存
+            all_entries = self.index.get_all_entries()
+            for existing_key, existing_entry in all_entries.items():
+                # 跳过已检查的精确匹配
+                if existing_key == cache_key:
+                    continue
+                
+                # 检查是否是同一个资产（数据源、市场、代码、时间粒度相同）
+                if (existing_entry.get('data_source') == data_source and
+                    existing_entry.get('market') == market and
+                    existing_entry.get('code') == code and
+                    existing_entry.get('interval') == interval):
+                    
+                    # 检查日期范围是否能覆盖查询范围
+                    result = self._check_and_load_cache(existing_entry, existing_key, start_date, end_date)
+                    if result['status'] == 'full_match':
+                        self.logger.info(f"✅ 找到覆盖缓存: {existing_key} (覆盖查询范围)")
+                        return result
         
+        # 3. 未找到任何匹配的缓存
+        return {'status': 'no_match', 'data': None, 'caches': []}
+    
+    def _check_and_load_cache(self, entry: dict, cache_key: str, start_date: date, end_date: date) -> dict:
+        """
+        检查并加载缓存
+        
+        Args:
+            entry: 缓存条目
+            cache_key: 缓存键
+            start_date: 查询开始日期
+            end_date: 查询结束日期
+            
+        Returns:
+            查询结果字典
+        """
+        # 检查是否过期
+        if self.policy.is_expired(entry):
+            self.logger.info(f"缓存已过期: {cache_key}")
+            return {'status': 'no_match', 'data': None, 'caches': []}
+        
+        # 检查文件是否存在
+        file_path = Path(entry['file_path'])
+        if not file_path.exists():
+            self.logger.warning(f"缓存文件不存在: {file_path}")
+            self.index.remove_entry(cache_key)
+            return {'status': 'no_match', 'data': None, 'caches': []}
+        
+        # 读取数据
+        data = self.storage.load(file_path)
+        if data is None:
+            self.logger.error(f"读取缓存文件失败: {file_path}")
+            return {'status': 'no_match', 'data': None, 'caches': []}
+        
+        # 检查日期范围是否完全包含查询范围
+        cache_start = datetime.strptime(entry['start_date'], '%Y-%m-%d').date()
+        cache_end = datetime.strptime(entry['end_date'], '%Y-%m-%d').date()
+        
+        if cache_start <= start_date and cache_end >= end_date:
+            # ✅ 缓存范围完全覆盖查询范围，过滤数据
+            filtered_data = data[(data.index.date >= start_date) & (data.index.date <= end_date)]
+            
+            if filtered_data.empty:
+                self.logger.warning(f"过滤后数据为空: {cache_key}")
+                return {'status': 'no_match', 'data': None, 'caches': []}
+            
+            # 更新访问记录
+            self.index.update_access(cache_key)
+            
+            self.logger.info(f"✅ 从缓存过滤数据: {len(filtered_data)} 条记录 (原缓存: {len(data)} 条)")
+            
+            return {
+                'status': 'full_match',
+                'data': filtered_data,
+                'caches': [entry],
+                'from_larger_cache': cache_key != f"{entry['data_source']}_{entry['market']}_{entry['code']}_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}_{entry['interval']}"
+            }
+        
+        # 日期范围不匹配
         return {'status': 'no_match', 'data': None, 'caches': []}
     
     def _calculate_checksum(self, file_path: Path) -> str:
