@@ -697,31 +697,41 @@ if batch_mode == "批量回测" and st.session_state.batch_results is not None:
         col_download1, col_download2 = st.columns(2)
         
         with col_download1:
-            # 下载汇总结果（CSV，UTF-8 BOM编码）
-            csv_summary = results_df.to_csv(index=False, encoding='utf-8-sig')
+            # 下载汇总结果（Excel格式，完美支持中文）
+            from io import BytesIO
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                results_df.to_excel(writer, index=False, sheet_name='批量回测汇总')
+            excel_data = output.getvalue()
+            
             st.download_button(
-                label="📥 下载汇总结果 (CSV)",
-                data=csv_summary,
-                file_name=f"批量回测汇总_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv",
+                label="📥 下载汇总结果 (Excel)",
+                data=excel_data,
+                file_name=f"批量回测汇总_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="download_summary",
                 use_container_width=True
             )
         
         with col_download2:
-            # 下载交易记录（CSV，UTF-8 BOM编码）
+            # 下载交易记录（Excel格式，完美支持中文）
             if all_trades:
                 trades_df = pd.DataFrame(all_trades)
                 # 调整列顺序，将股票代码放在最前面
                 cols = ['股票代码'] + [col for col in trades_df.columns if col != '股票代码']
                 trades_df = trades_df[cols]
                 
-                csv_trades = trades_df.to_csv(index=False, encoding='utf-8-sig')
+                from io import BytesIO
+                output = BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    trades_df.to_excel(writer, index=False, sheet_name='交易记录')
+                excel_data = output.getvalue()
+                
                 st.download_button(
-                    label="📥 下载交易记录 (CSV)",
-                    data=csv_trades,
-                    file_name=f"批量回测交易记录_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv",
+                    label="📥 下载交易记录 (Excel)",
+                    data=excel_data,
+                    file_name=f"批量回测交易记录_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key="download_trades",
                     use_container_width=True
                 )
