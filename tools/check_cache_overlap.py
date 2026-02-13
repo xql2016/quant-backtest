@@ -233,6 +233,25 @@ class CacheOverlapTool:
             for key in to_remove:
                 del index_data['entries'][key]
             
+            # 重新计算统计信息
+            if index_data['entries']:
+                total_size = sum(e.get('file_size_kb', 0) for e in index_data['entries'].values()) / 1024
+                created_times = [e['created_at'] for e in index_data['entries'].values() if 'created_at' in e]
+                
+                index_data['statistics'] = {
+                    'total_entries': len(index_data['entries']),
+                    'total_size_mb': round(total_size, 2),
+                    'oldest_entry': min(created_times) if created_times else None,
+                    'newest_entry': max(created_times) if created_times else None
+                }
+            else:
+                index_data['statistics'] = {
+                    'total_entries': 0,
+                    'total_size_mb': 0.0,
+                    'oldest_entry': None,
+                    'newest_entry': None
+                }
+            
             index_data['last_update'] = datetime.now().isoformat()
             
             with open(self.metadata_file, 'w', encoding='utf-8') as f:
