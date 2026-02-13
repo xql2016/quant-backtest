@@ -294,6 +294,17 @@ run_btn = st.sidebar.button("🚀 开始回测", type="primary")
 # ===========================
 # 2. 核心逻辑处理
 # ===========================
+
+# 初始化 session_state 用于保存批量回测结果
+if 'batch_results' not in st.session_state:
+    st.session_state.batch_results = None
+if 'batch_trades' not in st.session_state:
+    st.session_state.batch_trades = None
+if 'batch_failed' not in st.session_state:
+    st.session_state.batch_failed = None
+if 'batch_metadata' not in st.session_state:
+    st.session_state.batch_metadata = None
+
 if run_btn:
     # 定义通用变量（批量和单股都需要）
     data_source_names = {"akshare": "AKShare", "yfinance": "YFinance", "tushare": "Tushare"}
@@ -373,106 +384,15 @@ if run_btn:
         status_text.empty()
         progress_bar.empty()
         
-        # 显示结果
-        if results:
-            st.success(f"✅ 成功回测 {len(results)} 只股票")
-            
-            # 创建结果DataFrame
-            import pandas as pd
-            results_df = pd.DataFrame(results)
-            
-            # 添加超额收益列
-            results_df['excess_return'] = results_df['total_return'] - results_df['benchmark_return']
-            
-            # 排序（按策略收益率降序）
-            results_df = results_df.sort_values('total_return', ascending=False)
-            
-            # 汇总统计
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("平均收益率", f"{results_df['total_return'].mean()*100:.2f}%")
-            col2.metric("最佳收益", f"{results_df['total_return'].max()*100:.2f}%")
-            col3.metric("最差收益", f"{results_df['total_return'].min()*100:.2f}%")
-            col4.metric("胜率中位数", f"{results_df['win_rate'].median()*100:.1f}%")
-            
-            # 详细结果表格
-            st.subheader("📋 详细结果")
-            
-            # 格式化显示
-            display_df = results_df.copy()
-            display_df['策略收益率'] = display_df['total_return'].apply(lambda x: f"{x*100:.2f}%")
-            display_df['基准收益率'] = display_df['benchmark_return'].apply(lambda x: f"{x*100:.2f}%")
-            display_df['超额收益'] = display_df['excess_return'].apply(lambda x: f"{x*100:.2f}%")
-            display_df['胜率'] = display_df['win_rate'].apply(lambda x: f"{x*100:.1f}%")
-            display_df['最终资产'] = display_df['final_equity'].apply(lambda x: f"{x:,.0f}")
-            
-            # 选择要显示的列
-            st.dataframe(
-                display_df[['code', '策略收益率', '基准收益率', '超额收益', '胜率', 'total_trades', '最终资产']].rename(columns={
-                    'code': '股票代码',
-                    'total_trades': '交易次数'
-                }),
-                use_container_width=True,
-                height=400
-            )
-            
-            # 下载按钮（使用列布局，避免刷新）
-            col_download1, col_download2 = st.columns(2)
-            
-            with col_download1:
-                # 下载汇总结果
-                csv_summary = results_df.to_csv(index=False, encoding='utf-8-sig')
-                st.download_button(
-                    label="📥 下载汇总结果 (CSV)",
-                    data=csv_summary,
-                    file_name=f"批量回测汇总_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv",
-                    key="download_summary"
-                )
-            
-            with col_download2:
-                # 下载详细交易记录
-                if all_trades:
-                    trades_df = pd.DataFrame(all_trades)
-                    # 调整列顺序，将股票代码放在最前面
-                    cols = ['股票代码'] + [col for col in trades_df.columns if col != '股票代码']
-                    trades_df = trades_df[cols]
-                    
-                    csv_trades = trades_df.to_csv(index=False, encoding='utf-8-sig')
-                    st.download_button(
-                        label="📥 下载交易记录 (CSV)",
-                        data=csv_trades,
-                        file_name=f"批量回测交易记录_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                        mime="text/csv",
-                        key="download_trades"
-                    )
-                else:
-                    st.info("📋 无交易记录")
-            
-            # 显示交易记录预览
-            if all_trades:
-                st.subheader("📋 交易记录预览")
-                st.caption(f"共 {len(all_trades)} 笔交易，下载CSV查看完整记录")
-                
-                trades_df = pd.DataFrame(all_trades)
-                cols = ['股票代码'] + [col for col in trades_df.columns if col != '股票代码']
-                trades_df = trades_df[cols]
-                
-                # 只显示前20条
-                st.dataframe(
-                    trades_df.head(20),
-                    use_container_width=True,
-                    height=300
-                )
-                
-                if len(all_trades) > 20:
-                    st.info(f"💡 仅显示前20条记录，完整的 {len(all_trades)} 笔交易请下载CSV查看")
-        
-        # 显示失败的股票
-        if failed_codes:
-            st.warning(f"⚠️ {len(failed_codes)} 只股票回测失败")
-            with st.expander("查看失败详情"):
-                for code, reason in failed_codes:
-                    st.text(f"❌ {code}: {reason}")
+        # 保存结果到 session_state
+        st.session_state.batch_results = results
+        st.session_state.batch_trades = all_trades
+        st.session_state.batch_failed = failed_codes
+        st.session_state.batch_metadata = {
+            'data_source': data_source_name,
+            'market': market_type,
+            'strategy': selected_strategy
+        }
     
     # 单只股票回测模式
     else:
@@ -718,3 +638,118 @@ try:
 except Exception as e:
     st.sidebar.caption("💾 缓存功能：启用")
     st.sidebar.caption("💡 数据会自动缓存")
+
+# ===========================
+# 3. 批量回测结果显示（独立于 run_btn，避免下载刷新问题）
+# ===========================
+if batch_mode == "批量回测" and st.session_state.batch_results is not None:
+    results = st.session_state.batch_results
+    all_trades = st.session_state.batch_trades
+    failed_codes = st.session_state.batch_failed
+    metadata = st.session_state.batch_metadata
+    
+    # 显示标题
+    st.title("📊 批量回测报告")
+    st.caption(f"数据源：{metadata['data_source']} | 市场：{metadata['market']} | 策略：{metadata['strategy']}")
+    
+    if results:
+        st.success(f"✅ 成功回测 {len(results)} 只股票")
+        
+        # 创建结果DataFrame
+        import pandas as pd
+        results_df = pd.DataFrame(results)
+        
+        # 添加超额收益列
+        results_df['excess_return'] = results_df['total_return'] - results_df['benchmark_return']
+        
+        # 排序（按策略收益率降序）
+        results_df = results_df.sort_values('total_return', ascending=False)
+        
+        # 汇总统计
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("平均收益率", f"{results_df['total_return'].mean()*100:.2f}%")
+        col2.metric("最佳收益", f"{results_df['total_return'].max()*100:.2f}%")
+        col3.metric("最差收益", f"{results_df['total_return'].min()*100:.2f}%")
+        col4.metric("胜率中位数", f"{results_df['win_rate'].median()*100:.1f}%")
+        
+        # 详细结果表格
+        st.subheader("📋 详细结果")
+        
+        # 格式化显示
+        display_df = results_df.copy()
+        display_df['策略收益率'] = display_df['total_return'].apply(lambda x: f"{x*100:.2f}%")
+        display_df['基准收益率'] = display_df['benchmark_return'].apply(lambda x: f"{x*100:.2f}%")
+        display_df['超额收益'] = display_df['excess_return'].apply(lambda x: f"{x*100:.2f}%")
+        display_df['胜率'] = display_df['win_rate'].apply(lambda x: f"{x*100:.1f}%")
+        display_df['最终资产'] = display_df['final_equity'].apply(lambda x: f"{x:,.0f}")
+        
+        # 选择要显示的列
+        st.dataframe(
+            display_df[['code', '策略收益率', '基准收益率', '超额收益', '胜率', 'total_trades', '最终资产']].rename(columns={
+                'code': '股票代码',
+                'total_trades': '交易次数'
+            }),
+            use_container_width=True,
+            height=400
+        )
+        
+        # 下载按钮（使用列布局）
+        col_download1, col_download2 = st.columns(2)
+        
+        with col_download1:
+            # 下载汇总结果（CSV，UTF-8 BOM编码）
+            csv_summary = results_df.to_csv(index=False, encoding='utf-8-sig')
+            st.download_button(
+                label="📥 下载汇总结果 (CSV)",
+                data=csv_summary,
+                file_name=f"批量回测汇总_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                key="download_summary",
+                use_container_width=True
+            )
+        
+        with col_download2:
+            # 下载交易记录（CSV，UTF-8 BOM编码）
+            if all_trades:
+                trades_df = pd.DataFrame(all_trades)
+                # 调整列顺序，将股票代码放在最前面
+                cols = ['股票代码'] + [col for col in trades_df.columns if col != '股票代码']
+                trades_df = trades_df[cols]
+                
+                csv_trades = trades_df.to_csv(index=False, encoding='utf-8-sig')
+                st.download_button(
+                    label="📥 下载交易记录 (CSV)",
+                    data=csv_trades,
+                    file_name=f"批量回测交易记录_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    key="download_trades",
+                    use_container_width=True
+                )
+            else:
+                st.info("📋 无交易记录")
+        
+        # 显示交易记录预览
+        if all_trades:
+            st.subheader("📋 交易记录预览")
+            st.caption(f"共 {len(all_trades)} 笔交易，下载CSV查看完整记录")
+            
+            trades_df = pd.DataFrame(all_trades)
+            cols = ['股票代码'] + [col for col in trades_df.columns if col != '股票代码']
+            trades_df = trades_df[cols]
+            
+            # 只显示前20条
+            st.dataframe(
+                trades_df.head(20),
+                use_container_width=True,
+                height=300
+            )
+            
+            if len(all_trades) > 20:
+                st.info(f"💡 仅显示前20条记录，完整的 {len(all_trades)} 笔交易请下载CSV查看")
+    
+    # 显示失败的股票
+    if failed_codes:
+        st.warning(f"⚠️ {len(failed_codes)} 只股票回测失败")
+        with st.expander("查看失败详情"):
+            for code, reason in failed_codes:
+                st.text(f"❌ {code}: {reason}")
